@@ -57,6 +57,64 @@ export const getStats = async (): Promise<StatsResponse> => {
   return response.data;
 };
 
+// AI提供者相关接口
+export interface AIProvider {
+  [key: string]: string;
+}
+
+export interface AIProvidersResponse {
+  available_providers: AIProvider;
+  current_provider: string;
+  current_provider_name: string;
+}
+
+// 获取AI提供者列表
+export const getAIProviders = async (): Promise<AIProvidersResponse> => {
+  const response = await api.get('/api/ai/providers');
+  return response.data;
+};
+
+// 切换AI提供者
+export const switchAIProvider = async (providerType: string): Promise<void> => {
+  const formData = new FormData();
+  formData.append('provider_type', providerType);
+  
+  await api.post('/api/ai/switch', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
+// 使用指定AI提供者分析CTF题目
+export const analyzeChallengeWithProvider = async (
+  text: string,
+  file?: File | null,
+  provider?: string
+): Promise<QuestionResponse> => {
+  const formData = new FormData();
+  
+  if (text) {
+    formData.append('text', text);
+  }
+  
+  if (file) {
+    formData.append('file', file);
+  }
+  
+  if (provider) {
+    formData.append('provider', provider);
+  }
+  
+  const response = await api.post('/api/analyze/with-provider', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  
+  return response.data;
+};
+
 // 错误处理拦截器
 api.interceptors.response.use(
   (response) => response,

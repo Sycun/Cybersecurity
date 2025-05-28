@@ -19,8 +19,8 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="CTF智能分析平台",
-    description="基于DeepSeek AI的CTF题目智能分析平台",
-    version="1.0.0"
+    description="支持多AI提供者的CTF题目智能分析平台，包括DeepSeek和硅基流动",
+    version="1.1.0"
 )
 
 # CORS配置
@@ -155,6 +155,100 @@ async def get_stats(db: Session = Depends(get_db)):
         "total_questions": total_questions,
         "type_stats": type_stats
     }
+
+@app.get("/api/ai/providers")
+async def get_ai_providers():
+    """获取可用的AI提供者列表"""
+    try:
+        providers = AIService.get_available_providers()
+        current_info = ai_service.get_provider_info()
+        
+        return {
+            "available_providers": providers,
+            "current_provider": current_info["current_provider"],
+            "current_provider_name": current_info["current_provider_name"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取AI提供者信息失败: {str(e)}")
+
+@app.post("/api/ai/switch")
+async def switch_ai_provider(provider_type: str = Form(...)):
+    """切换AI提供者"""
+    try:
+        success = ai_service.switch_provider(provider_type)
+        if success:
+            return {
+                "message": f"成功切换到 {provider_type}",
+                "current_provider": provider_type
+            }
+        else:
+            raise HTTPException(status_code=400, detail="切换AI提供者失败")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"切换AI提供者失败: {str(e)}")
+
+@app.post("/api/analyze/with-provider", response_model=QuestionResponse)
+async def analyze_challenge_with_provider(
+    text: str = Form(None),
+    file: UploadFile = File(None),
+    provider: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """使用指定AI提供者分析CTF题目"""
+    try:
+        # 获取题目描述
+        description = ""
+        file_content = ""
+        
+        if text:
+            description = text
+        
+        if file:
+            file_content = await file.read()
+            if file.content_type and file.content_type.startswith('text/'):
+                description += f"\n文件内容:\n{file_content.decode('utf-8')}"
+            else:
+                description += f"\n上传了文件: {file.filename} (二进制文件)"
+        
+        if not description.strip():
+            raise HTTPException(status_code=400, detail="请提供题目描述或上传文件")
+        
+        # 检测题目类型
+        question_type = detect_question_type(description, file.filename if file else None)
+        
+        # 如果指定了提供者，创建临时AI服务实例
+        if provider:
+            temp_ai_service = AIService(provider_type=provider)
+            ai_response = await temp_ai_service.analyze_challenge(description, question_type)
+            used_provider = provider
+        else:
+            ai_response = await ai_service.analyze_challenge(description, question_type)
+            used_provider = ai_service.provider_type
+        
+        # 获取推荐工具
+        recommended_tools = get_recommended_tools(question_type, db)
+        
+        # 保存到数据库
+        db_question = Question(
+            description=description,
+            type=question_type,
+            ai_response=ai_response,
+            file_name=file.filename if file else None
+        )
+        db.add(db_question)
+        db.commit()
+        db.refresh(db_question)
+        
+        return QuestionResponse(
+            id=db_question.id,
+            description=description,
+            type=question_type,
+            ai_response=ai_response,
+            recommended_tools=recommended_tools,
+            timestamp=db_question.timestamp
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

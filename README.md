@@ -4,20 +4,23 @@
 
 ## 项目简介 / Introduction
 
-本项目是一个基于 DeepSeek AI 的 CTF（Capture The Flag）题目智能分析平台，旨在帮助 CTF 学习者和参赛者高效分析和解答各类题目。平台支持 Web、Pwn、Reverse、Crypto、Misc 等所有主流 CTF 题型，集成 AI 解题思路、工具推荐、学习资源和比赛模式等功能。
+本项目是一个支持多AI提供者的 CTF（Capture The Flag）题目智能分析平台，旨在帮助 CTF 学习者和参赛者高效分析和解答各类题目。平台支持 Web、Pwn、Reverse、Crypto、Misc 等所有主流 CTF 题型，集成 AI 解题思路、工具推荐、学习资源和比赛模式等功能。目前支持 DeepSeek 和硅基流动两个AI提供者。
 
-This project is an AI-powered CTF (Capture The Flag) challenge analysis platform based on DeepSeek AI. It helps CTF learners and players efficiently analyze and solve various types of challenges, supporting Web, Pwn, Reverse, Crypto, and Misc categories. The platform integrates AI-driven solutions, tool recommendations, learning resources, and competition mode.
+This project is a multi-AI provider CTF (Capture The Flag) challenge analysis platform that helps CTF learners and players efficiently analyze and solve various types of challenges. It supports Web, Pwn, Reverse, Crypto, and Misc categories, integrating AI-driven solutions, tool recommendations, learning resources, and competition mode. Currently supports DeepSeek and SiliconFlow AI providers.
 
 ---
 
 ## 功能特性 / Features
 
 - 🔍 智能题目分析（AI-powered challenge analysis）
-- 🤖 DeepSeek API 集成（DeepSeek API integration）
+- 🤖 多AI提供者支持（Multiple AI providers support）
+  - DeepSeek API 集成
+  - 硅基流动 API 集成
 - 🛠️ 常用CTF工具命令推荐（CTF tool command suggestions）
 - 📚 学习资源与Writeup推荐（Learning resources & writeups）
 - ⏱️ 比赛模式与解题记录（Competition mode & solution records）
 - 📁 支持文本、代码和文件上传分析（Text, code, and file upload support）
+- 🔄 动态切换AI提供者（Dynamic AI provider switching）
 
 ---
 
@@ -48,14 +51,14 @@ This project is an AI-powered CTF (Capture The Flag) challenge analysis platform
 
 - Node.js 16+ & npm
 - Python 3.8+
-- DeepSeek API Key
+- AI API Key (DeepSeek 或 硅基流动)
 
 ### 一键安装 / One-click Install
 
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
-# 编辑 .env 文件，填写你的 DeepSeek API 密钥
+# 编辑 .env 文件，填写你的 AI API 密钥（DeepSeek 或 硅基流动）
 
 # 2. 运行安装脚本
 chmod +x install.sh

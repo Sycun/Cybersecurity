@@ -1,50 +1,45 @@
-// 简化的历史记录组件，避免依赖问题
-function History() {
-  // 模拟数据
-  const mockHistory = [
-    {
-      id: 1,
-      type: 'web',
-      description: 'SQL注入漏洞分析',
-      timestamp: new Date().toISOString(),
-      ai_response: '这是一个典型的SQL注入漏洞...'
-    },
-    {
-      id: 2,
-      type: 'pwn',
-      description: '缓冲区溢出利用',
-      timestamp: new Date().toISOString(),
-      ai_response: '缓冲区溢出是一种常见的二进制漏洞...'
+import React, { useEffect, useState } from 'react';
+import { deleteHistoryItem, getHistory } from '../services/api';
+import { QuestionResponse } from '../types';
+
+const History: React.FC = () => {
+  const [history, setHistory] = useState<QuestionResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    try {
+      setLoading(true);
+      const data = await getHistory();
+      setHistory(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载历史记录失败');
+    } finally {
+      setLoading(false);
     }
-  ];
-
-  const containerStyle = {
-    padding: '20px',
-    fontFamily: 'Arial, sans-serif',
-    color: '#fff',
-    backgroundColor: '#121212'
   };
 
-  const cardStyle = {
-    backgroundColor: '#1e1e1e',
-    border: '1px solid #333',
-    borderRadius: '8px',
-    padding: '16px',
-    margin: '16px 0',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+  const handleDelete = async (id: number) => {
+    if (window.confirm('确定要删除这条记录吗？')) {
+      try {
+        await deleteHistoryItem(id);
+        setHistory(history.filter(item => item.id !== id));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '删除失败');
+      }
+    }
   };
 
-  const chipStyle = {
-    display: 'inline-block',
-    padding: '4px 8px',
-    borderRadius: '16px',
-    fontSize: '12px',
-    fontWeight: 'bold',
-    marginBottom: '8px'
+  const handleView = (item: QuestionResponse) => {
+    window.alert(`查看详情:\n${item.ai_response}`);
   };
 
-  const getTypeColor = (type) => {
-    const colors = {
+  const getTypeColor = (type: string) => {
+    const colors: { [key: string]: string } = {
       web: '#2196f3',
       pwn: '#f44336',
       reverse: '#ff9800',
@@ -54,7 +49,32 @@ function History() {
     return colors[type] || '#9e9e9e';
   };
 
-  const buttonStyle = {
+  const containerStyle: React.CSSProperties = {
+    padding: '20px',
+    fontFamily: 'Arial, sans-serif',
+    color: '#fff',
+    backgroundColor: '#121212'
+  };
+
+  const cardStyle: React.CSSProperties = {
+    backgroundColor: '#1e1e1e',
+    border: '1px solid #333',
+    borderRadius: '8px',
+    padding: '16px',
+    margin: '16px 0',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+  };
+
+  const chipStyle: React.CSSProperties = {
+    display: 'inline-block',
+    padding: '4px 8px',
+    borderRadius: '16px',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    marginBottom: '8px'
+  };
+
+  const buttonStyle: React.CSSProperties = {
     padding: '8px 16px',
     margin: '0 4px',
     border: 'none',
@@ -63,82 +83,83 @@ function History() {
     fontSize: '14px'
   };
 
-  const viewButtonStyle = {
+  const viewButtonStyle: React.CSSProperties = {
     ...buttonStyle,
     backgroundColor: '#00bcd4',
     color: '#000'
   };
 
-  const deleteButtonStyle = {
+  const deleteButtonStyle: React.CSSProperties = {
     ...buttonStyle,
     backgroundColor: '#f44336',
     color: '#fff'
   };
 
-  // 创建DOM元素
-  const container = document.createElement('div');
-  Object.assign(container.style, containerStyle);
-
-  const title = document.createElement('h2');
-  title.textContent = '历史记录';
-  title.style.marginBottom = '24px';
-  container.appendChild(title);
-
-  if (mockHistory.length === 0) {
-    const emptyMessage = document.createElement('div');
-    emptyMessage.textContent = '暂无历史记录';
-    emptyMessage.style.textAlign = 'center';
-    emptyMessage.style.color = '#666';
-    container.appendChild(emptyMessage);
-  } else {
-    mockHistory.forEach(item => {
-      const card = document.createElement('div');
-      Object.assign(card.style, cardStyle);
-
-      const chip = document.createElement('span');
-      chip.textContent = item.type.toUpperCase();
-      Object.assign(chip.style, {
-        ...chipStyle,
-        backgroundColor: getTypeColor(item.type),
-        color: '#000'
-      });
-      card.appendChild(chip);
-
-      const description = document.createElement('p');
-      description.textContent = item.description;
-      description.style.margin = '8px 0';
-      card.appendChild(description);
-
-      const timestamp = document.createElement('small');
-      timestamp.textContent = new Date(item.timestamp).toLocaleString();
-      timestamp.style.color = '#999';
-      card.appendChild(timestamp);
-
-      const buttonContainer = document.createElement('div');
-      buttonContainer.style.marginTop = '12px';
-
-      const viewButton = document.createElement('button');
-      viewButton.textContent = '👁️ 查看';
-      Object.assign(viewButton.style, viewButtonStyle);
-      viewButton.onclick = () => alert(`查看详情:\n${item.ai_response}`);
-      buttonContainer.appendChild(viewButton);
-
-      const deleteButton = document.createElement('button');
-      deleteButton.textContent = '🗑️ 删除';
-      Object.assign(deleteButton.style, deleteButtonStyle);
-      deleteButton.onclick = () => {
-        if (confirm('确定要删除这条记录吗？')) {
-          card.remove();
-        }
-      };
-      buttonContainer.appendChild(deleteButton);
-
-      card.appendChild(buttonContainer);
-      container.appendChild(card);
-    });
+  if (loading) {
+    return (
+      <div style={containerStyle}>
+        <h2 style={{ marginBottom: '24px' }}>历史记录</h2>
+        <div style={{ textAlign: 'center', color: '#666' }}>加载中...</div>
+      </div>
+    );
   }
 
-  return container;
-}
+  if (error) {
+    return (
+      <div style={containerStyle}>
+        <h2 style={{ marginBottom: '24px' }}>历史记录</h2>
+        <div style={{ backgroundColor: '#f44336', color: '#fff', padding: '12px', borderRadius: '4px' }}>
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={containerStyle}>
+      <h2 style={{ marginBottom: '24px' }}>历史记录</h2>
+      
+      {history.length === 0 ? (
+        <div style={{ textAlign: 'center', color: '#666' }}>
+          暂无历史记录
+        </div>
+      ) : (
+        history.map(item => (
+          <div key={item.id} style={cardStyle}>
+            <span style={{
+              ...chipStyle,
+              backgroundColor: getTypeColor(item.type),
+              color: '#000'
+            }}>
+              {item.type.toUpperCase()}
+            </span>
+            
+            <p style={{ margin: '8px 0' }}>{item.description}</p>
+            
+            <small style={{ color: '#999' }}>
+              {new Date(item.timestamp).toLocaleString()}
+            </small>
+            
+            <div style={{ marginTop: '12px' }}>
+              <button
+                style={viewButtonStyle}
+                onClick={() => handleView(item)}
+              >
+                👁️ 查看
+              </button>
+              
+              <button
+                style={deleteButtonStyle}
+                onClick={() => handleDelete(item.id)}
+              >
+                🗑️ 删除
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 export default History; 

@@ -4,30 +4,24 @@
 //     Assessment as StatsIcon
 // } from '@mui/icons-material';
 // import { Box, Tab, Tabs } from '@mui/material';
-// import React from 'react';
-// import { useLocation, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-// 临时解决方案：使用简单的文本图标
-const AnalyticsIcon = () => '📊';
-const HistoryIcon = () => '📝';
-const StatsIcon = () => '📈';
-
-// 纯JavaScript导航组件，避免所有依赖问题
-function Navigation() {
-  const currentPath = window.location.pathname;
+const Navigation: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   
-  const handleNavigation = (path) => {
-    window.history.pushState({}, '', path);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+  const handleNavigation = (path: string) => {
+    navigate(path);
   };
 
-  const navStyle = {
+  const navStyle: React.CSSProperties = {
     borderBottom: '1px solid #333',
     marginBottom: '24px',
     padding: '16px 0'
   };
 
-  const tabStyle = {
+  const tabStyle: React.CSSProperties = {
     display: 'inline-block',
     padding: '8px 16px',
     margin: '0 8px',
@@ -38,15 +32,11 @@ function Navigation() {
     textDecoration: 'none'
   };
 
-  const activeTabStyle = {
+  const activeTabStyle: React.CSSProperties = {
     ...tabStyle,
     backgroundColor: '#00bcd4',
     color: '#000'
   };
-
-  // 创建DOM元素
-  const nav = document.createElement('div');
-  Object.assign(nav.style, navStyle);
 
   const tabs = [
     { path: '/', label: '📊 题目分析' },
@@ -54,15 +44,19 @@ function Navigation() {
     { path: '/stats', label: '📈 统计信息' }
   ];
 
-  tabs.forEach(tab => {
-    const span = document.createElement('span');
-    span.textContent = tab.label;
-    Object.assign(span.style, currentPath === tab.path ? activeTabStyle : tabStyle);
-    span.onclick = () => handleNavigation(tab.path);
-    nav.appendChild(span);
-  });
-
-  return nav;
-}
+  return (
+    <div style={navStyle}>
+      {tabs.map(tab => (
+        <span
+          key={tab.path}
+          style={location.pathname === tab.path ? activeTabStyle : tabStyle}
+          onClick={() => handleNavigation(tab.path)}
+        >
+          {tab.label}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 export default Navigation; 
