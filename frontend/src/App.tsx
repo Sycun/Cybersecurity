@@ -1,6 +1,5 @@
 import { Security as SecurityIcon } from '@mui/icons-material';
 import { AppBar, Box, Container, Toolbar, Typography } from '@mui/material';
-import React from 'react';
 import { Route, Routes } from 'react-router-dom';
 import ChallengeAnalyzer from './components/ChallengeAnalyzer';
 import History from './components/History';
@@ -17,7 +16,7 @@ function App() {
             CTF智能分析平台
           </Typography>
           <Typography variant="subtitle1" sx={{ mr: 2 }}>
-            Powered by DeepSeek AI
+            多AI提供者支持
           </Typography>
         </Toolbar>
       </AppBar>

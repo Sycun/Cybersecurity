@@ -97,6 +97,32 @@ const ChallengeAnalyzer: React.FC = () => {
     color: '#000'
   };
 
+  const getProviderInfo = (providerKey: string) => {
+    const providerInfoMap: { [key: string]: { type: string; description: string; color: string } } = {
+      'deepseek': {
+        type: '在线API',
+        description: '专业代码分析，响应快速',
+        color: '#2196f3'
+      },
+      'siliconflow': {
+        type: '在线API',
+        description: '模型选择丰富，价格优惠',
+        color: '#4caf50'
+      },
+      'local': {
+        type: '本地模型',
+        description: '数据隐私，离线使用',
+        color: '#ff9800'
+      },
+      'openai_compatible': {
+        type: 'OpenAI兼容',
+        description: '灵活部署，标准接口',
+        color: '#9c27b0'
+      }
+    };
+    return providerInfoMap[providerKey] || { type: '未知', description: '', color: '#666' };
+  };
+
   return (
     <div style={containerStyle}>
       <h2 style={{ marginBottom: '24px' }}>CTF题目智能分析</h2>
@@ -112,15 +138,42 @@ const ChallengeAnalyzer: React.FC = () => {
             title="选择AI提供者"
             style={{
               ...inputStyle,
-              marginBottom: '16px'
+              marginBottom: '8px'
             }}
           >
             {aiProviders && Object.entries(aiProviders.available_providers).map(([key, name]) => (
               <option key={key} value={key}>
-                {name} {key === aiProviders.current_provider ? '(当前默认)' : ''}
+                {name} {key === aiProviders.current_provider ? '(默认)' : ''}
               </option>
             ))}
           </select>
+          
+          {/* AI提供者状态指示器 */}
+          {selectedProvider && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: '8px 12px',
+              backgroundColor: '#2a2a2a',
+              borderRadius: '4px',
+              marginBottom: '16px',
+              fontSize: '14px'
+            }}>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: getProviderInfo(selectedProvider).color,
+                marginRight: '8px'
+              }}></div>
+              <span style={{ marginRight: '12px', fontWeight: 'bold', color: getProviderInfo(selectedProvider).color }}>
+                {getProviderInfo(selectedProvider).type}
+              </span>
+              <span style={{ color: '#ccc', fontSize: '13px' }}>
+                {getProviderInfo(selectedProvider).description}
+              </span>
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: '16px' }}>
