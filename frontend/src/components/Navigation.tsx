@@ -1,61 +1,75 @@
-// import {
-//     Analytics as AnalyticsIcon,
-//     History as HistoryIcon,
-//     Assessment as StatsIcon
-// } from '@mui/icons-material';
-// import { Box, Tab, Tabs } from '@mui/material';
-import React from 'react';
+import React, { KeyboardEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import './Navigation.css';
+
+interface NavigationTab {
+  path: string;
+  label: string;
+  ariaLabel?: string;
+}
 
 const Navigation: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   
   const handleNavigation = (path: string) => {
-    navigate(path);
+    try {
+      navigate(path);
+    } catch (error) {
+      console.error('Navigation error:', error);
+    }
   };
 
-  const navStyle: React.CSSProperties = {
-    borderBottom: '1px solid #333',
-    marginBottom: '24px',
-    padding: '16px 0'
+  const handleKeyPress = (event: KeyboardEvent<HTMLSpanElement>, path: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleNavigation(path);
+    }
   };
 
-  const tabStyle: React.CSSProperties = {
-    display: 'inline-block',
-    padding: '8px 16px',
-    margin: '0 8px',
-    cursor: 'pointer',
-    borderRadius: '4px',
-    backgroundColor: '#1e1e1e',
-    color: '#fff',
-    textDecoration: 'none'
-  };
-
-  const activeTabStyle: React.CSSProperties = {
-    ...tabStyle,
-    backgroundColor: '#00bcd4',
-    color: '#000'
-  };
-
-  const tabs = [
-    { path: '/', label: '📊 题目分析' },
-    { path: '/history', label: '📝 历史记录' },
-    { path: '/stats', label: '📈 统计信息' }
+  const tabs: NavigationTab[] = [
+    { 
+      path: '/', 
+      label: '📊 题目分析',
+      ariaLabel: '题目分析页面'
+    },
+    { 
+      path: '/history', 
+      label: '📝 历史记录',
+      ariaLabel: '历史记录页面'
+    },
+    { 
+      path: '/stats', 
+      label: '📈 统计信息',
+      ariaLabel: '统计信息页面'
+    },
+    { 
+      path: '/performance', 
+      label: '⚡ 性能监控',
+      ariaLabel: '性能监控页面'
+    }
   ];
 
   return (
-    <div style={navStyle}>
-      {tabs.map(tab => (
-        <span
-          key={tab.path}
-          style={location.pathname === tab.path ? activeTabStyle : tabStyle}
-          onClick={() => handleNavigation(tab.path)}
-        >
-          {tab.label}
-        </span>
-      ))}
-    </div>
+    <nav className="navigation-container" role="navigation" aria-label="主导航">
+      {tabs.map(tab => {
+        const isActive = location.pathname === tab.path;
+        return (
+          <span
+            key={tab.path}
+            className={isActive ? 'navigation-tab-active' : 'navigation-tab'}
+            onClick={() => handleNavigation(tab.path)}
+            onKeyDown={(event) => handleKeyPress(event, tab.path)}
+            role="button"
+            tabIndex={0}
+            aria-label={tab.ariaLabel || tab.label}
+            aria-current={isActive ? 'page' : undefined}
+          >
+            {tab.label}
+          </span>
+        );
+      })}
+    </nav>
   );
 };
 

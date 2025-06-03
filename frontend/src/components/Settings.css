@@ -1,0 +1,72 @@
+.settings-dialog {
+  .MuiDialog-paper {
+    max-height: 80vh;
+  }
+}
+
+.settings-section {
+  margin-bottom: 16px;
+}
+
+.settings-accordion {
+  margin-bottom: 8px;
+}
+
+.settings-accordion .MuiAccordionSummary-root {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.settings-accordion .MuiAccordionSummary-root:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.settings-field {
+  margin-bottom: 12px;
+}
+
+.settings-field-group {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.settings-field-group .MuiTextField-root {
+  flex: 1;
+}
+
+.settings-provider-selector {
+  margin-bottom: 24px;
+}
+
+.settings-test-button {
+  margin-right: auto;
+}
+
+.settings-success {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+}
+
+.settings-error {
+  background-color: #ffebee;
+  color: #c62828;
+}
+
+.settings-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+/* 响应式设计 */
+@media (max-width: 600px) {
+  .settings-field-group {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .settings-field-group .MuiTextField-root {
+    width: 100%;
+  }
+} 

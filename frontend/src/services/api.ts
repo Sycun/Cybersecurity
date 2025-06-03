@@ -57,6 +57,29 @@ export const getStats = async (): Promise<StatsResponse> => {
   return response.data;
 };
 
+// 获取性能统计信息
+export const getPerformanceStats = async (): Promise<any> => {
+  const response = await api.get('/api/stats/performance');
+  return response.data;
+};
+
+// 获取缓存统计信息
+export const getCacheStats = async (): Promise<any> => {
+  const response = await api.get('/api/cache/stats');
+  return response.data;
+};
+
+// 清空缓存
+export const clearCache = async (): Promise<void> => {
+  await api.post('/api/cache/clear');
+};
+
+// 健康检查
+export const healthCheck = async (): Promise<any> => {
+  const response = await api.get('/health');
+  return response.data;
+};
+
 // AI提供者相关接口
 export interface AIProvider {
   [key: string]: string;
@@ -131,4 +154,40 @@ api.interceptors.response.use(
       throw new Error('请求失败，请重试');
     }
   }
-); 
+);
+
+// 设置相关接口
+export interface AIConfig {
+  provider: string;
+  deepseek_api_key?: string;
+  deepseek_api_url?: string;
+  deepseek_model?: string;
+  siliconflow_api_key?: string;
+  siliconflow_api_url?: string;
+  siliconflow_model?: string;
+  openai_compatible_api_url?: string;
+  openai_compatible_api_key?: string;
+  openai_compatible_model?: string;
+  local_model_path?: string;
+  local_model_type?: string;
+  local_model_device?: string;
+  local_model_max_length?: number;
+  local_model_temperature?: number;
+}
+
+// 获取当前配置
+export const getSettings = async (): Promise<AIConfig> => {
+  const response = await api.get('/api/settings');
+  return response.data;
+};
+
+// 更新配置
+export const updateSettings = async (config: AIConfig): Promise<void> => {
+  await api.post('/api/settings', config);
+};
+
+// 测试连接
+export const testConnection = async (provider?: string): Promise<{ message: string }> => {
+  const response = await api.post('/api/test-connection', { provider });
+  return response.data;
+}; 

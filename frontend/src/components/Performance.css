@@ -1,0 +1,85 @@
+.performance-container {
+  padding: 20px;
+  font-family: Arial, sans-serif;
+  color: #fff;
+  background-color: #121212;
+}
+
+.performance-card {
+  background-color: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.performance-stat-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #333;
+}
+
+.performance-provider-tag {
+  background-color: #00bcd4;
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.performance-status-enabled {
+  color: #4caf50;
+}
+
+.performance-status-disabled {
+  color: #f44336;
+}
+
+.performance-cache-hit {
+  color: #4caf50;
+}
+
+.performance-cache-miss {
+  color: #ff9800;
+}
+
+.performance-status-good {
+  color: #4caf50;
+}
+
+.performance-status-warning {
+  color: #ff9800;
+}
+
+.performance-status-error {
+  color: #f44336;
+}
+
+.performance-loading,
+.performance-no-data {
+  text-align: center;
+  color: #666;
+}
+
+.performance-error {
+  background-color: #f44336;
+  color: #fff;
+  padding: 12px;
+  border-radius: 4px;
+}
+
+.performance-refresh-container {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.performance-refresh-button {
+  padding: 10px 20px;
+  background-color: #00bcd4;
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+} 

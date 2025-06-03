@@ -2,6 +2,9 @@ import os
 from typing import Dict, Any
 from dotenv import load_dotenv
 from ai_providers import AIProviderFactory, AIProvider
+from cache import ai_response_cache
+from config import config
+from logger import get_logger
 
 load_dotenv()
 
@@ -15,8 +18,10 @@ class AIService:
         Args:
             provider_type: AI提供者类型，如果为None则使用环境变量AI_SERVICE的值
         """
-        self.provider_type = provider_type or os.getenv("AI_SERVICE", "deepseek")
+        self.provider_type = provider_type or config.AI_SERVICE
         self.provider: AIProvider = AIProviderFactory.create_provider(self.provider_type)
+        self.logger = get_logger("ai_service")
+        self.logger.info(f"AI服务初始化，使用提供者: {self.provider_type}")
     
     async def analyze_challenge(self, description: str, question_type: str) -> str:
         """
@@ -30,10 +35,27 @@ class AIService:
             AI分析结果
         """
         try:
-            return await self.provider.analyze_challenge(description, question_type)
+            # 尝试从缓存获取结果
+            cached_response = ai_response_cache.get_cached_response(
+                description, question_type, self.provider_type
+            )
+            
+            if cached_response:
+                self.logger.info(f"使用缓存响应，题目类型: {question_type}")
+                return cached_response
+            
+            # 缓存未命中，调用AI提供者
+            self.logger.info(f"调用AI提供者分析，类型: {question_type}, 提供者: {self.provider_type}")
+            response = await self.provider.analyze_challenge(description, question_type)
+            
+            # 缓存响应
+            ai_response_cache.cache_response(description, question_type, self.provider_type, response)
+            
+            return response
+            
         except Exception as e:
             error_msg = f"AI服务异常: {str(e)}"
-            print(error_msg)
+            self.logger.error(error_msg, exc_info=True)
             return f"AI分析遇到问题，请检查配置或稍后重试。错误信息: {error_msg}"
     
     async def get_tool_recommendation(self, question_type: str, description: str) -> Dict[str, Any]:
@@ -47,11 +69,11 @@ class AIService:
         Returns:
             工具推荐信息
         """
-        # 这个方法保持原有逻辑，或者可以扩展为AI驱动的工具推荐
         try:
+            # 这个方法保持原有逻辑，可以后续扩展为AI驱动的工具推荐
             return {"tools": [], "commands": []}
         except Exception as e:
-            print(f"工具推荐失败: {str(e)}")
+            self.logger.error(f"工具推荐失败: {str(e)}")
             return {"tools": [], "commands": []}
     
     def get_provider_info(self) -> Dict[str, str]:
@@ -68,6 +90,22 @@ class AIService:
             "available_providers": available_providers
         }
     
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """
+        获取性能统计信息
+        
+        Returns:
+            性能统计字典
+        """
+        provider_stats = self.provider.get_performance_stats()
+        cache_stats = ai_response_cache.get_cache_stats()
+        
+        return {
+            "provider": self.provider_type,
+            "provider_stats": provider_stats,
+            "cache_stats": cache_stats
+        }
+    
     def switch_provider(self, provider_type: str) -> bool:
         """
         切换AI提供者
@@ -80,12 +118,25 @@ class AIService:
         """
         try:
             new_provider = AIProviderFactory.create_provider(provider_type)
+            old_provider = self.provider_type
+            
             self.provider = new_provider
             self.provider_type = provider_type
+            
+            # 清理旧提供者的缓存
+            ai_response_cache.invalidate_provider_cache(old_provider)
+            
+            self.logger.info(f"AI提供者切换成功: {old_provider} -> {provider_type}")
             return True
+            
         except Exception as e:
-            print(f"切换AI提供者失败: {str(e)}")
+            self.logger.error(f"切换AI提供者失败: {str(e)}")
             return False
+    
+    def clear_cache(self):
+        """清空缓存"""
+        ai_response_cache.cache.clear()
+        self.logger.info("AI响应缓存已清空")
     
     @staticmethod
     def get_available_providers() -> Dict[str, str]:

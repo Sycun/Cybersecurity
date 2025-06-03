@@ -1,0 +1,60 @@
+:root {
+  --navigation-border-color: #333;
+  --navigation-bg-color: #1e1e1e;
+  --navigation-text-color: #fff;
+  --navigation-active-bg: #00bcd4;
+  --navigation-active-text: #000;
+  --navigation-hover-bg: #2a2a2a;
+  --navigation-radius: 4px;
+  --navigation-spacing: 8px;
+  --navigation-padding: 8px 16px;
+}
+
+.navigation-container {
+  border-bottom: 1px solid var(--navigation-border-color);
+  margin-bottom: 24px;
+  padding: 16px 0;
+}
+
+.navigation-tab {
+  display: inline-block;
+  padding: var(--navigation-padding);
+  margin: 0 var(--navigation-spacing);
+  cursor: pointer;
+  border-radius: var(--navigation-radius);
+  background-color: var(--navigation-bg-color);
+  color: var(--navigation-text-color);
+  text-decoration: none;
+  transition: all 0.2s ease-in-out;
+  border: 2px solid transparent;
+  outline: none;
+}
+
+.navigation-tab:hover {
+  background-color: var(--navigation-hover-bg);
+  transform: translateY(-1px);
+}
+
+.navigation-tab:focus {
+  border-color: var(--navigation-active-bg);
+  box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.2);
+}
+
+.navigation-tab-active {
+  display: inline-block;
+  padding: var(--navigation-padding);
+  margin: 0 var(--navigation-spacing);
+  cursor: pointer;
+  border-radius: var(--navigation-radius);
+  background-color: var(--navigation-active-bg);
+  color: var(--navigation-active-text);
+  text-decoration: none;
+  transition: all 0.2s ease-in-out;
+  border: 2px solid var(--navigation-active-bg);
+  outline: none;
+  box-shadow: 0 2px 4px rgba(0, 188, 212, 0.3);
+}
+
+.navigation-tab-active:focus {
+  box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.4), 0 2px 4px rgba(0, 188, 212, 0.3);
+} 
