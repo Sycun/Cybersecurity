@@ -121,11 +121,9 @@ if [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
 fi
 
 echo ""
-echo "📝 测试配置："
-echo "   cd backend && python3 test_ai_providers.py"
-if [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
-    echo "   cd backend && python3 test_local_models.py"
-fi
+echo "📝 验证安装："
+echo "   启动服务后访问 http://localhost:3000"
+echo "   在设置页面测试AI服务连接"
 
 echo ""
 echo "🚀 启动服务："

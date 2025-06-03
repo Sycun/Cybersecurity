@@ -31,6 +31,12 @@ This project is a powerful multi-AI provider CTF challenge analysis platform des
 - 🔐 **安全管理**: API密钥安全显示和存储
 - 🧪 **连接测试**: 内置测试功能验证配置有效性
 
+### 🎓 **用户引导系统** ⭐ **NEW**
+- 👋 **智能欢迎**: 首次访问自动显示欢迎指引
+- 📚 **分步教程**: 6步完整使用指南，从配置到掌握全功能
+- 🎯 **交互式引导**: 可点击跳转的实用操作指导
+- 🔄 **随时可访问**: 右上角帮助按钮或浮动按钮随时查看
+
 ### 🚀 **企业级功能**
 - ⚡ **智能缓存**: 大幅提升响应速度，减少重复请求
 - 📊 **性能监控**: 实时监控AI服务性能和系统状态
@@ -304,24 +310,7 @@ tail -f backend/logs/app.log
 
 ---
 
-## 🧪 测试和验证 / Testing & Validation
-
-### ✅ **功能测试**
-
-```bash
-# 测试AI提供者配置
-cd backend
-python3 test_ai_providers.py
-
-# 测试本地模型（如果使用）
-python3 test_local_models.py
-
-# 测试API端点
-curl -X POST http://localhost:8000/api/analyze \
-  -F "text=这是一个简单的CTF题目测试"
-```
-
-### 🔧 **故障排除**
+## 🔧 故障排除 / Troubleshooting
 
 <details>
 <summary>常见问题解决方案</summary>
@@ -384,7 +373,7 @@ python3 init_db.py
 
 ## 📄 文档目录 / Documentation
 
-- 📋 [**SETTINGS_GUIDE.md**](SETTINGS_GUIDE.md) - 设置功能详细指南
+- 📋 [**SETTINGS_GUIDE.md**](docs/SETTINGS_GUIDE.md) - 设置功能详细指南
 - 📖 [**API文档**](http://localhost:8000/docs) - 完整的API参考
 - 🔧 [**部署指南**](#-docker-部署--docker-deployment) - Docker部署说明
 - 🛠️ [**故障排除**](#-故障排除) - 常见问题解决

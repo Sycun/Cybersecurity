@@ -19,7 +19,7 @@ class MemoryCache:
         """检查缓存项是否过期"""
         return time.time() - item["timestamp"] > self.ttl
     
-    def _clean_expired(self):
+    def _cleanup_expired(self):
         """清理过期的缓存项"""
         current_time = time.time()
         expired_keys = [
@@ -31,27 +31,25 @@ class MemoryCache:
             del self.cache[key]
         
         if expired_keys:
-            self.logger.debug(f"清理了 {len(expired_keys)} 个过期缓存项")
+            self.logger.info(f"清理了 {len(expired_keys)} 个过期缓存项")
     
     def get(self, key: str) -> Optional[Any]:
         """获取缓存值"""
         if not config.ENABLE_CACHE:
             return None
         
-        self._clean_expired()
+        self._cleanup_expired()
         
         if key in self.cache:
             item = self.cache[key]
             if not self._is_expired(item):
                 self.hit_count += 1
-                self.logger.debug(f"缓存命中: {key}")
                 return item["value"]
             else:
                 # 过期了，删除
                 del self.cache[key]
         
         self.miss_count += 1
-        self.logger.debug(f"缓存未命中: {key}")
         return None
     
     def set(self, key: str, value: Any):
@@ -63,13 +61,11 @@ class MemoryCache:
             "value": value,
             "timestamp": time.time()
         }
-        self.logger.debug(f"缓存设置: {key}")
     
     def delete(self, key: str):
         """删除缓存项"""
         if key in self.cache:
             del self.cache[key]
-            self.logger.debug(f"缓存删除: {key}")
     
     def clear(self):
         """清空所有缓存"""

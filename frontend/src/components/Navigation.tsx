@@ -47,6 +47,11 @@ const Navigation: React.FC = () => {
       path: '/performance', 
       label: '⚡ 性能监控',
       ariaLabel: '性能监控页面'
+    },
+    { 
+      path: '/docs', 
+      label: '📚 文档中心',
+      ariaLabel: '文档中心页面'
     }
   ];
 

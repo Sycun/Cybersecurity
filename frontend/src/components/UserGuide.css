@@ -1,0 +1,295 @@
+/* 用户引导组件样式 */
+.user-guide-dialog {
+  position: relative;
+}
+
+.user-guide-dialog .MuiDialog-paper {
+  min-height: 600px;
+  max-height: 90vh;
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+}
+
+.user-guide-header {
+  background: linear-gradient(135deg, #1976d2 0%, #42a5f5 100%);
+  color: white;
+  border-radius: 12px 12px 0 0;
+}
+
+.user-guide-header .MuiTypography-root {
+  color: white;
+}
+
+.user-guide-content {
+  padding: 24px;
+}
+
+.user-guide-step-indicator {
+  background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.user-guide-progress {
+  height: 4px;
+  background: linear-gradient(135deg, #1976d2 0%, #42a5f5 100%);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.user-guide-step-content {
+  margin: 16px 0;
+}
+
+.user-guide-feature-list {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.user-guide-feature-item {
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.user-guide-feature-item:last-child {
+  border-bottom: none;
+}
+
+.user-guide-feature-icon {
+  margin-right: 12px;
+  min-width: 32px;
+  display: flex;
+  justify-content: center;
+}
+
+.user-guide-tip-box {
+  background: linear-gradient(135deg, #e8f5e8 0%, #f1f8e9 100%);
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  position: relative;
+}
+
+.user-guide-tip-box::before {
+  content: "💡";
+  position: absolute;
+  top: -10px;
+  left: 16px;
+  background: white;
+  padding: 0 8px;
+  font-size: 16px;
+}
+
+.user-guide-navigation-demo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.user-guide-nav-item {
+  background: #1976d2;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.2s ease;
+}
+
+.user-guide-nav-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(25, 118, 210, 0.3);
+}
+
+.user-guide-completion-box {
+  background: linear-gradient(135deg, #e8f5e8 0%, #f1f8e9 100%);
+  border: 2px solid #4caf50;
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  margin: 16px 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.user-guide-completion-box::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transform: rotate(45deg);
+  animation: shine 2s infinite;
+}
+
+@keyframes shine {
+  0% {
+    transform: translateX(-100%) translateY(-100%) rotate(45deg);
+  }
+  100% {
+    transform: translateX(100%) translateY(100%) rotate(45deg);
+  }
+}
+
+.user-guide-action-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.user-guide-primary-button {
+  background: linear-gradient(135deg, #1976d2 0%, #42a5f5 100%);
+  border: none;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 120px;
+}
+
+.user-guide-primary-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.3);
+}
+
+.user-guide-secondary-button {
+  background: transparent;
+  border: 1px solid #1976d2;
+  color: #1976d2;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 120px;
+}
+
+.user-guide-secondary-button:hover {
+  background: #1976d2;
+  color: white;
+}
+
+.user-guide-stepper {
+  margin: 24px 0;
+}
+
+.user-guide-stepper .MuiStepLabel-root {
+  cursor: pointer;
+}
+
+.user-guide-stepper .MuiStepLabel-label {
+  font-weight: 500;
+}
+
+.user-guide-stepper .MuiStepLabel-label.Mui-active {
+  font-weight: 600;
+  color: #1976d2;
+}
+
+.user-guide-stepper .MuiStepLabel-label.Mui-completed {
+  color: #4caf50;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .user-guide-dialog .MuiDialog-paper {
+    margin: 16px;
+    min-height: auto;
+    max-height: calc(100vh - 32px);
+  }
+
+  .user-guide-content {
+    padding: 16px;
+  }
+
+  .user-guide-action-buttons {
+    flex-direction: column;
+  }
+
+  .user-guide-primary-button,
+  .user-guide-secondary-button {
+    width: 100%;
+  }
+
+  .user-guide-nav-item {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+
+  .user-guide-step-indicator {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+}
+
+/* 动画效果 */
+.user-guide-fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.user-guide-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 暗色主题支持 */
+@media (prefers-color-scheme: dark) {
+  .user-guide-feature-list {
+    background: #2a2a2a;
+    color: #ffffff;
+  }
+
+  .user-guide-feature-item {
+    border-bottom-color: #404040;
+  }
+
+  .user-guide-step-indicator {
+    background: linear-gradient(135deg, #2a2a2a 0%, #404040 100%);
+    color: #ffffff;
+  }
+
+  .user-guide-tip-box {
+    background: linear-gradient(135deg, #1b3a1b 0%, #2e4a2e 100%);
+    border-color: #4caf50;
+    color: #ffffff;
+  }
+} 

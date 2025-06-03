@@ -182,12 +182,71 @@ export const getSettings = async (): Promise<AIConfig> => {
 };
 
 // 更新配置
-export const updateSettings = async (config: AIConfig): Promise<void> => {
-  await api.post('/api/settings', config);
+export const updateSettings = async (config: AIConfig): Promise<{
+  message: string;
+  updated_fields?: string[];
+  current_provider?: string;
+}> => {
+  const response = await fetch(`${API_BASE_URL}/api/settings`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config),
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || '配置更新失败');
+  }
+  
+  return response.json();
+};
+
+// 验证配置
+export const validateSettings = async (config: AIConfig): Promise<{
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}> => {
+  const response = await fetch(`${API_BASE_URL}/api/settings/validate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config),
+  });
+  
+  if (!response.ok) {
+    throw new Error('配置验证失败');
+  }
+  
+  return response.json();
 };
 
 // 测试连接
-export const testConnection = async (provider?: string): Promise<{ message: string }> => {
-  const response = await api.post('/api/test-connection', { provider });
-  return response.data;
+export const testConnection = async (provider?: string, config?: AIConfig): Promise<{
+  success: boolean;
+  message: string;
+  provider: string;
+  response_preview?: string;
+  error_details?: string;
+}> => {
+  const response = await fetch(`${API_BASE_URL}/api/test-connection`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      provider,
+      config
+    }),
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || '连接测试失败');
+  }
+  
+  return response.json();
 }; 
