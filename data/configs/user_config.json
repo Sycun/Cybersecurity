@@ -1,0 +1,22 @@
+{
+  "ai_provider": "deepseek",
+  "ai_settings": {
+    "temperature": 0.7,
+    "max_tokens": 4000,
+    "language": "zh"
+  },
+  "ui_settings": {
+    "theme": "light",
+    "language": "zh",
+    "auto_save": true
+  },
+  "analysis_settings": {
+    "auto_detect_type": true,
+    "include_tools": true,
+    "include_history": true
+  },
+  "export_settings": {
+    "default_format": "json",
+    "include_metadata": true
+  }
+} 

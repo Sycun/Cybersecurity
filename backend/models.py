@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON
 from sqlalchemy.sql import func
 from database import Base
 
@@ -14,17 +14,44 @@ class Question(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
 
 class Tool(Base):
-    """CTF工具表"""
+    """工具推荐表"""
     __tablename__ = "tools"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, comment="工具名称")
     description = Column(Text, comment="工具描述")
-    command_template = Column(Text, comment="命令模板")
-    applicable_types = Column(String(255), comment="适用的题目类型，逗号分隔")
+    command = Column(Text, comment="使用命令")
     category = Column(String(50), comment="工具分类")
-    is_active = Column(Boolean, default=True, comment="是否启用")
+
+class AutoSolve(Base):
+    """自动解题记录表"""
+    __tablename__ = "auto_solves"
     
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, nullable=False, comment="关联的题目ID")
+    status = Column(String(20), default="pending", comment="解题状态: pending, running, completed, failed")
+    solve_method = Column(String(50), comment="解题方法")
+    generated_code = Column(Text, comment="生成的解题代码")
+    execution_result = Column(Text, comment="执行结果")
+    flag = Column(String(500), comment="获取到的flag")
+    error_message = Column(Text, comment="错误信息")
+    execution_time = Column(Integer, comment="执行时间(秒)")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    completed_at = Column(DateTime(timezone=True), comment="完成时间")
+
+class SolveTemplate(Base):
+    """解题模板表"""
+    __tablename__ = "solve_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, comment="模板名称")
+    category = Column(String(50), nullable=False, comment="题目类型")
+    description = Column(Text, comment="模板描述")
+    template_code = Column(Text, nullable=False, comment="模板代码")
+    parameters = Column(JSON, comment="参数配置")
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+
 class LearningResource(Base):
     """学习资源表"""
     __tablename__ = "learning_resources"

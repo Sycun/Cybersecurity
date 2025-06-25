@@ -1,0 +1,154 @@
+{
+  "tools": [
+    {
+      "id": 1,
+      "name": "Burp Suite",
+      "description": "Web应用程序安全测试平台，用于拦截、修改和分析HTTP请求",
+      "command": "burpsuite",
+      "category": "web",
+      "difficulty": "intermediate",
+      "url": "https://portswigger.net/burp",
+      "tags": ["web", "proxy", "interception"]
+    },
+    {
+      "id": 2,
+      "name": "SQLMap",
+      "description": "自动化SQL注入和数据库接管工具",
+      "command": "sqlmap -u \"http://target.com/page?id=1\"",
+      "category": "web",
+      "difficulty": "beginner",
+      "url": "https://sqlmap.org/",
+      "tags": ["web", "sql-injection", "automation"]
+    },
+    {
+      "id": 3,
+      "name": "Nmap",
+      "description": "网络发现和安全审计工具",
+      "command": "nmap -sS -sV -O target.com",
+      "category": "misc",
+      "difficulty": "beginner",
+      "url": "https://nmap.org/",
+      "tags": ["network", "scanning", "enumeration"]
+    },
+    {
+      "id": 4,
+      "name": "Wireshark",
+      "description": "网络协议分析器，用于实时网络流量分析",
+      "command": "wireshark",
+      "category": "misc",
+      "difficulty": "intermediate",
+      "url": "https://www.wireshark.org/",
+      "tags": ["network", "traffic", "analysis"]
+    },
+    {
+      "id": 5,
+      "name": "Ghidra",
+      "description": "NSA开发的软件逆向工程工具",
+      "command": "ghidra",
+      "category": "reverse",
+      "difficulty": "advanced",
+      "url": "https://ghidra-sre.org/",
+      "tags": ["reverse", "decompiler", "analysis"]
+    },
+    {
+      "id": 6,
+      "name": "IDA Pro",
+      "description": "交互式反汇编器，用于软件逆向工程",
+      "command": "ida64",
+      "category": "reverse",
+      "difficulty": "advanced",
+      "url": "https://hex-rays.com/ida-pro/",
+      "tags": ["reverse", "disassembler", "analysis"]
+    },
+    {
+      "id": 7,
+      "name": "GDB",
+      "description": "GNU调试器，用于程序调试和动态分析",
+      "command": "gdb ./target_binary",
+      "category": "pwn",
+      "difficulty": "intermediate",
+      "url": "https://www.gnu.org/software/gdb/",
+      "tags": ["pwn", "debugger", "dynamic-analysis"]
+    },
+    {
+      "id": 8,
+      "name": "Pwntools",
+      "description": "CTF exploit开发框架",
+      "command": "python3 -c \"from pwn import *\"",
+      "category": "pwn",
+      "difficulty": "intermediate",
+      "url": "https://github.com/Gallopsled/pwntools",
+      "tags": ["pwn", "exploit", "framework"]
+    },
+    {
+      "id": 9,
+      "name": "John the Ripper",
+      "description": "密码破解工具",
+      "command": "john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt",
+      "category": "crypto",
+      "difficulty": "beginner",
+      "url": "https://www.openwall.com/john/",
+      "tags": ["crypto", "password", "cracking"]
+    },
+    {
+      "id": 10,
+      "name": "Hashcat",
+      "description": "高级密码恢复工具",
+      "command": "hashcat -m 0 -a 0 hash.txt wordlist.txt",
+      "category": "crypto",
+      "difficulty": "intermediate",
+      "url": "https://hashcat.net/hashcat/",
+      "tags": ["crypto", "password", "gpu"]
+    },
+    {
+      "id": 11,
+      "name": "Dirb",
+      "description": "Web目录扫描工具",
+      "command": "dirb http://target.com /usr/share/dirb/wordlists/common.txt",
+      "category": "web",
+      "difficulty": "beginner",
+      "url": "https://tools.kali.org/web-applications/dirb",
+      "tags": ["web", "directory", "enumeration"]
+    },
+    {
+      "id": 12,
+      "name": "Nikto",
+      "description": "Web服务器扫描器",
+      "command": "nikto -h http://target.com",
+      "category": "web",
+      "difficulty": "beginner",
+      "url": "https://cirt.net/Nikto2",
+      "tags": ["web", "vulnerability", "scanner"]
+    },
+    {
+      "id": 13,
+      "name": "Metasploit",
+      "description": "渗透测试框架",
+      "command": "msfconsole",
+      "category": "misc",
+      "difficulty": "intermediate",
+      "url": "https://www.metasploit.com/",
+      "tags": ["exploit", "framework", "penetration"]
+    },
+    {
+      "id": 14,
+      "name": "Binwalk",
+      "description": "固件分析工具",
+      "command": "binwalk firmware.bin",
+      "category": "reverse",
+      "difficulty": "intermediate",
+      "url": "https://github.com/ReFirmLabs/binwalk",
+      "tags": ["reverse", "firmware", "extraction"]
+    },
+    {
+      "id": 15,
+      "name": "Steghide",
+      "description": "隐写术工具",
+      "command": "steghide extract -sf image.jpg",
+      "category": "misc",
+      "difficulty": "beginner",
+      "url": "http://steghide.sourceforge.net/",
+      "tags": ["steganography", "extraction", "hidden-data"]
+    }
+  ]
+} 

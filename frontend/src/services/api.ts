@@ -9,27 +9,38 @@ const api = axios.create({
 });
 
 // 分析CTF题目
-export const analyzeChallenge = async (
-  text: string, 
-  file?: File | null
-): Promise<QuestionResponse> => {
-  const formData = new FormData();
-  
-  if (text) {
-    formData.append('text', text);
+export const analyzeChallenge = async (request: {
+  description: string;
+  question_type: string;
+  ai_provider?: string;
+  user_id?: string;
+  conversation_id?: string;
+  use_context?: boolean;
+}): Promise<{
+  success: boolean;
+  response: string;
+  conversation_id?: string;
+  ai_provider?: string;
+}> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      throw new Error('分析失败');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('分析失败:', error);
+    throw error;
   }
-  
-  if (file) {
-    formData.append('file', file);
-  }
-  
-  const response = await api.post('/api/analyze', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
-  
-  return response.data;
 };
 
 // 获取推荐工具
@@ -92,21 +103,36 @@ export interface AIProvidersResponse {
 }
 
 // 获取AI提供者列表
-export const getAIProviders = async (): Promise<AIProvidersResponse> => {
-  const response = await api.get('/api/ai/providers');
-  return response.data;
+export const getAIProviders = async (): Promise<any> => {
+  const response = await fetch(`${API_BASE_URL}/api/ai/providers`);
+  if (!response.ok) {
+    throw new Error('获取AI提供者失败');
+  }
+  return response.json();
 };
 
 // 切换AI提供者
-export const switchAIProvider = async (providerType: string): Promise<void> => {
-  const formData = new FormData();
-  formData.append('provider_type', providerType);
-  
-  await api.post('/api/ai/switch', formData, {
+export const switchAIProvider = async (providerType: string): Promise<any> => {
+  const response = await fetch(`${API_BASE_URL}/api/ai/switch`, {
+    method: 'POST',
     headers: {
-      'Content-Type': 'multipart/form-data',
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({ provider_type: providerType }),
   });
+  if (!response.ok) {
+    throw new Error('切换AI提供者失败');
+  }
+  return response.json();
+};
+
+// 获取AI提供者状态
+export const getAIProviderStatus = async (): Promise<any> => {
+  const response = await fetch(`${API_BASE_URL}/api/ai/status`);
+  if (!response.ok) {
+    throw new Error('获取AI提供者状态失败');
+  }
+  return response.json();
 };
 
 // 使用指定AI提供者分析CTF题目
@@ -249,4 +275,124 @@ export const testConnection = async (provider?: string, config?: AIConfig): Prom
   }
   
   return response.json();
+};
+
+// 自动解题相关API
+export const autoSolveChallenge = async (request: {
+  question_id: number;
+  solve_method?: string;
+  custom_code?: string;
+  parameters?: Record<string, any>;
+}): Promise<any> => {
+  const response = await api.post('/api/auto-solve', request);
+  return response.data;
+};
+
+export const getAutoSolveResult = async (solveId: number): Promise<any> => {
+  const response = await api.get(`/api/auto-solve/${solveId}`);
+  return response.data;
+};
+
+export const executeCode = async (request: {
+  code: string;
+  language: string;
+  input_data?: string;
+  timeout?: number;
+}): Promise<any> => {
+  const response = await api.post('/api/execute-code', request);
+  return response.data;
+};
+
+export const getSolveTemplates = async (category?: string): Promise<any> => {
+  const params = category ? { category } : {};
+  const response = await api.get('/api/solve-templates', { params });
+  return response.data;
+};
+
+export const createSolveTemplate = async (template: {
+  name: string;
+  category: string;
+  description?: string;
+  template_code: string;
+  parameters?: Record<string, any>;
+}): Promise<any> => {
+  const response = await api.post('/api/solve-templates', template);
+  return response.data;
+};
+
+// 对话管理相关API
+export const createConversation = async (userId?: string, initialContext?: any): Promise<string | null> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        initial_context: initialContext
+      }),
+    });
+    const data = await response.json();
+    return data.conversation_id || null;
+  } catch (error) {
+    console.error('创建对话失败:', error);
+    return null;
+  }
+};
+
+export const getConversation = async (conversationId: string): Promise<any | null> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`);
+    const data = await response.json();
+    return data.conversation || null;
+  } catch (error) {
+    console.error('获取对话失败:', error);
+    return null;
+  }
+};
+
+export const getUserConversations = async (userId: string, limit: number = 10): Promise<any[]> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/user/${userId}?limit=${limit}`);
+    const data = await response.json();
+    return data.conversations || [];
+  } catch (error) {
+    console.error('获取用户对话列表失败:', error);
+    return [];
+  }
+};
+
+export const deleteConversation = async (conversationId: string): Promise<boolean> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+    const data = await response.json();
+    return data.success || false;
+  } catch (error) {
+    console.error('删除对话失败:', error);
+    return false;
+  }
+};
+
+export const addMessage = async (conversationId: string, role: string, content: string, metadata?: any): Promise<boolean> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role,
+        content,
+        metadata
+      }),
+    });
+    const data = await response.json();
+    return data.success || false;
+  } catch (error) {
+    console.error('添加消息失败:', error);
+    return false;
+  }
 }; 

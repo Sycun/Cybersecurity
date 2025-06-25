@@ -1,20 +1,27 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, FileResponse
 from sqlalchemy.orm import Session
 import os
 from dotenv import load_dotenv
 from sqlalchemy import text
+from datetime import datetime
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+import asyncio
 
 from database import SessionLocal, engine, Base
-from models import Question, Tool
-from schemas import QuestionCreate, QuestionResponse, ToolResponse, AnalysisRequest
+from models import Question, Tool, AutoSolve, SolveTemplate
+from schemas import QuestionCreate, QuestionResponse, ToolResponse, AnalysisRequest, AutoSolveRequest, AutoSolveResponse, SolveTemplateCreate, SolveTemplateResponse, CodeExecutionRequest, CodeExecutionResponse, ConversationCreateRequest, MessageRequest
 from ai_service import AIService
+from auto_solver import AutoSolver
 from utils import detect_question_type, get_recommended_tools
 from config import config
 from logger import get_logger
 from cache import ai_response_cache
+from data_service import data_service
+from conversation_service import conversation_service
 
 # 加载环境变量
 load_dotenv()
@@ -50,665 +57,710 @@ def get_db():
 
 # 初始化AI服务
 ai_service = AIService()
-logger.info("CTF智能分析平台启动")
+
+# 静态文件服务
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
+    """根路径"""
     return {"message": "CTF智能分析平台API", "version": "2.1.0"}
 
 @app.get("/health")
 async def health_check():
-    """健康检查接口"""
+    """健康检查"""
     try:
         # 检查数据库连接
-        db = next(get_db())
+        db = SessionLocal()
         db.execute(text("SELECT 1"))
-        db_status = "healthy"
-    except Exception as e:
-        logger.error(f"数据库健康检查失败: {str(e)}")
-        db_status = "unhealthy"
-    
-    # 获取AI服务信息
-    provider_info = ai_service.get_provider_info()
-    
-    return {
-        "status": "healthy" if db_status == "healthy" else "unhealthy",
-        "database": db_status,
-        "ai_provider": provider_info["current_provider"],
-        "cache_enabled": config.ENABLE_CACHE,
-        "timestamp": __import__("datetime").datetime.now().isoformat()
-    }
-
-@app.get("/api/stats/performance")
-async def get_performance_stats():
-    """获取性能统计信息"""
-    try:
-        stats = ai_service.get_performance_stats()
+        db.close()
+        
         return {
-            "ai_performance": stats,
-            "config": {
-                "cache_enabled": config.ENABLE_CACHE,
-                "cache_ttl": config.CACHE_TTL,
-                "request_timeout": config.REQUEST_TIMEOUT
-            }
+            "status": "healthy",
+            "database": "healthy",
+            "ai_provider": ai_service.provider_type,
+            "cache_enabled": config.ENABLE_CACHE,
+            "timestamp": "2024-01-01T12:00:00.000000"
         }
     except Exception as e:
-        logger.error(f"获取性能统计失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取性能统计失败: {str(e)}")
+        logger.error(f"健康检查失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"服务异常: {str(e)}")
 
-@app.post("/api/cache/clear")
-async def clear_cache():
-    """清空缓存"""
-    try:
-        ai_service.clear_cache()
-        return {"message": "缓存已清空"}
-    except Exception as e:
-        logger.error(f"清空缓存失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"清空缓存失败: {str(e)}")
-
-@app.get("/api/cache/stats")
-async def get_cache_stats():
-    """获取缓存统计信息"""
-    try:
-        return ai_response_cache.get_cache_stats()
-    except Exception as e:
-        logger.error(f"获取缓存统计失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取缓存统计失败: {str(e)}")
-
-@app.post("/api/analyze", response_model=QuestionResponse)
-async def analyze_challenge(
-    text: str = Form(None),
-    file: UploadFile = File(None),
-    db: Session = Depends(get_db)
-):
+@app.post("/api/analyze")
+async def analyze_challenge(request: AnalysisRequest):
     """分析CTF题目"""
     try:
-        logger.info("收到分析请求")
+        # 创建或获取对话会话
+        conversation_id = request.conversation_id
+        if not conversation_id:
+            conversation_id = conversation_service.create_conversation(
+                user_id=request.user_id,
+                initial_context={"question_type": request.question_type}
+            )
         
-        # 获取题目描述
-        description = ""
-        file_content = ""
+        # 添加用户消息到对话
+        conversation_service.add_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=request.description,
+            metadata={
+                "question_type": request.question_type,
+                "ai_provider": request.ai_provider
+            }
+        )
         
-        if text:
-            description = text
-        
-        if file:
-            # 检查文件大小
-            file_content = await file.read()
-            if len(file_content) > config.MAX_FILE_SIZE:
-                raise HTTPException(status_code=413, detail=f"文件大小超过限制 ({config.MAX_FILE_SIZE} bytes)")
-            
-            if file.content_type and file.content_type.startswith('text/'):
-                description += f"\n文件内容:\n{file_content.decode('utf-8')}"
-            else:
-                description += f"\n上传了文件: {file.filename} (二进制文件)"
-        
-        if not description.strip():
-            raise HTTPException(status_code=400, detail="请提供题目描述或上传文件")
-        
-        # 检测题目类型
-        question_type = detect_question_type(description, file.filename if file else None)
-        logger.info(f"检测到题目类型: {question_type}")
+        # 构建多轮对话提示词
+        if conversation_id:
+            enhanced_prompt = conversation_service.build_conversation_prompt(
+                conversation_id, request.description, request.question_type
+            )
+        else:
+            enhanced_prompt = request.description
         
         # 调用AI分析
-        ai_response = await ai_service.analyze_challenge(description, question_type)
+        if request.ai_provider and request.ai_provider != ai_service.provider_type:
+            ai_service.switch_provider(request.ai_provider)
         
-        # 获取推荐工具
-        recommended_tools = get_recommended_tools(question_type, db)
-        
-        # 保存到数据库
-        db_question = Question(
-            description=description,
-            type=question_type,
-            ai_response=ai_response,
-            file_name=file.filename if file else None
-        )
-        db.add(db_question)
-        db.commit()
-        db.refresh(db_question)
-        
-        logger.info(f"分析完成，题目ID: {db_question.id}")
-        
-        return QuestionResponse(
-            id=db_question.id,
-            description=description,
-            type=question_type,
-            ai_response=ai_response,
-            recommended_tools=recommended_tools,
-            timestamp=db_question.timestamp
+        response = await ai_service.analyze_challenge(
+            enhanced_prompt, 
+            request.question_type,
+            user_id=request.user_id,
+            use_context=request.use_context
         )
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"分析请求失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
-
-@app.get("/api/tools/{question_type}", response_model=list[ToolResponse])
-async def get_tools_by_type(question_type: str, db: Session = Depends(get_db)):
-    """根据题目类型获取推荐工具"""
-    tools = get_recommended_tools(question_type, db)
-    return tools
-
-@app.get("/api/history", response_model=list[QuestionResponse])
-async def get_history(skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
-    """获取历史分析记录"""
-    questions = db.query(Question).offset(skip).limit(limit).all()
-    
-    result = []
-    for question in questions:
-        tools = get_recommended_tools(question.type, db)
-        result.append(QuestionResponse(
-            id=question.id,
-            description=question.description,
-            type=question.type,
-            ai_response=question.ai_response,
-            recommended_tools=tools,
-            timestamp=question.timestamp
-        ))
-    
-    return result
-
-@app.delete("/api/history/{question_id}")
-async def delete_history_item(question_id: int, db: Session = Depends(get_db)):
-    """删除历史记录"""
-    question = db.query(Question).filter(Question.id == question_id).first()
-    if not question:
-        raise HTTPException(status_code=404, detail="记录不存在")
-    
-    db.delete(question)
-    db.commit()
-    return {"message": "删除成功"}
-
-@app.get("/api/stats")
-async def get_stats(db: Session = Depends(get_db)):
-    """获取统计信息"""
-    total_questions = db.query(Question).count()
-    
-    # 按类型统计
-    type_stats = {}
-    for question_type in ["web", "pwn", "reverse", "crypto", "misc"]:
-        count = db.query(Question).filter(Question.type == question_type).count()
-        type_stats[question_type] = count
-    
-    return {
-        "total_questions": total_questions,
-        "type_stats": type_stats
-    }
-
-@app.get("/api/ai/providers")
-async def get_ai_providers():
-    """获取可用的AI提供者列表"""
-    try:
-        providers = AIService.get_available_providers()
-        current_info = ai_service.get_provider_info()
+        # 添加AI响应到对话
+        conversation_service.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response,
+            metadata={"ai_provider": ai_service.provider_type}
+        )
+        
+        # 保存分析记录
+        analysis_data = {
+            "description": request.description,
+            "question_type": request.question_type,
+            "ai_response": response,
+            "ai_provider": ai_service.provider_type,
+            "conversation_id": conversation_id,
+            "use_context": request.use_context
+        }
+        
+        data_service.save_analysis_history(analysis_data)
         
         return {
-            "available_providers": providers,
-            "current_provider": current_info["current_provider"],
-            "current_provider_name": current_info["current_provider_name"]
+            "success": True,
+            "response": response,
+            "conversation_id": conversation_id,
+            "ai_provider": ai_service.provider_type
+        }
+        
+    except Exception as e:
+        logger.error(f"分析题目失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"分析题目失败: {str(e)}")
+
+@app.post("/api/auto-solve", response_model=AutoSolveResponse)
+async def auto_solve_challenge(
+    request: AutoSolveRequest
+):
+    """自动解题"""
+    try:
+        logger.info(f"收到自动解题请求，题目ID: {request.question_id}")
+        
+        # 获取题目信息
+        question = data_service.get_challenge(request.question_id)
+        if not question:
+            raise HTTPException(status_code=404, detail="题目不存在")
+        
+        # 创建自动解题引擎
+        auto_solver = AutoSolver(ai_service=ai_service)
+        
+        # 执行自动解题
+        result = await auto_solver.solve_challenge(
+            question_id=request.question_id,
+            solve_method=request.solve_method,
+            custom_code=request.custom_code,
+            parameters=request.parameters
+        )
+        
+        logger.info(f"自动解题完成，ID: {result['id']}, 状态: {result['status']}")
+        
+        return AutoSolveResponse(
+            id=result['id'],
+            question_id=result['question_id'],
+            status=result['status'],
+            solve_method=result['solve_method'],
+            generated_code=result['generated_code'],
+            execution_result=result['execution_result'],
+            flag=result['flag'],
+            error_message=result['error_message'],
+            execution_time=result['execution_time'],
+            created_at=result['created_at'],
+            completed_at=result['completed_at']
+        )
+        
+    except Exception as e:
+        logger.error(f"自动解题失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"自动解题失败: {str(e)}")
+
+@app.get("/api/auto-solve/{solve_id}", response_model=AutoSolveResponse)
+async def get_auto_solve_result(solve_id: str):
+    """获取自动解题结果"""
+    try:
+        auto_solve = data_service.get_auto_solve(solve_id)
+        if not auto_solve:
+            raise HTTPException(status_code=404, detail="解题记录不存在")
+        
+        return AutoSolveResponse(
+            id=auto_solve['id'],
+            question_id=auto_solve['question_id'],
+            status=auto_solve['status'],
+            solve_method=auto_solve['solve_method'],
+            generated_code=auto_solve['generated_code'],
+            execution_result=auto_solve['execution_result'],
+            flag=auto_solve['flag'],
+            error_message=auto_solve['error_message'],
+            execution_time=auto_solve['execution_time'],
+            created_at=auto_solve['created_at'],
+            completed_at=auto_solve['completed_at']
+        )
+        
+    except Exception as e:
+        logger.error(f"获取解题结果失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取解题结果失败: {str(e)}")
+
+@app.get("/api/auto-solves")
+async def get_auto_solves(question_id: str = None, limit: int = 50):
+    """获取自动解题记录列表"""
+    try:
+        auto_solves = data_service.get_auto_solves(question_id=question_id, limit=limit)
+        return auto_solves
+    except Exception as e:
+        logger.error(f"获取自动解题记录失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取自动解题记录失败: {str(e)}")
+
+@app.post("/api/execute-code", response_model=CodeExecutionResponse)
+async def execute_code(
+    request: CodeExecutionRequest,
+    db: Session = Depends(get_db)
+):
+    """执行代码（安全沙箱）"""
+    try:
+        logger.info(f"收到代码执行请求，语言: {request.language}")
+        
+        # 创建自动解题引擎用于代码执行
+        auto_solver = AutoSolver(db, ai_service)
+        
+        # 执行代码
+        execution_result, flag, error = await auto_solver._execute_code(
+            code=request.code,
+            language=request.language,
+            parameters={"input": request.input_data} if request.input_data else None
+        )
+        
+        return CodeExecutionResponse(
+            success=not bool(error),
+            output=execution_result,
+            error=error,
+            execution_time=0.0,  # 这里可以添加实际的时间计算
+            memory_usage=None
+        )
+        
+    except Exception as e:
+        logger.error(f"代码执行失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"代码执行失败: {str(e)}")
+
+@app.get("/api/solve-templates", response_model=list[SolveTemplateResponse])
+async def get_solve_templates(
+    category: str = None,
+    db: Session = Depends(get_db)
+):
+    """获取解题模板"""
+    try:
+        auto_solver = AutoSolver(db, ai_service)
+        templates = await auto_solver.get_solve_templates(category)
+        
+        return [
+            SolveTemplateResponse(
+                id=template.get('id'),
+                name=template.get('name'),
+                category=template.get('category'),
+                description=template.get('description'),
+                template_code=template.get('template_code'),
+                parameters=template.get('parameters', {}),
+                is_active=template.get('is_active', True),
+                created_at=template.get('created_at')
+            )
+            for template in templates
+        ]
+        
+    except Exception as e:
+        logger.error(f"获取解题模板失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取解题模板失败: {str(e)}")
+
+@app.post("/api/solve-templates", response_model=SolveTemplateResponse)
+async def create_solve_template(
+    request: SolveTemplateCreate,
+    db: Session = Depends(get_db)
+):
+    """创建解题模板"""
+    try:
+        auto_solver = AutoSolver(db, ai_service)
+        template = await auto_solver.create_solve_template(request.dict())
+        
+        return SolveTemplateResponse(
+            id=template.get('id'),
+            name=template.get('name'),
+            category=template.get('category'),
+            description=template.get('description'),
+            template_code=template.get('template_code'),
+            parameters=template.get('parameters', {}),
+            is_active=template.get('is_active', True),
+            created_at=template.get('created_at')
+        )
+        
+    except Exception as e:
+        logger.error(f"创建解题模板失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"创建解题模板失败: {str(e)}")
+
+@app.put("/api/solve-templates/{name}")
+async def update_solve_template(
+    name: str,
+    request: SolveTemplateCreate,
+    db: Session = Depends(get_db)
+):
+    """更新解题模板"""
+    try:
+        auto_solver = AutoSolver(db, ai_service)
+        success = await auto_solver.update_solve_template(name, request.dict())
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="模板不存在")
+        
+        return {"message": "模板更新成功"}
+        
+    except Exception as e:
+        logger.error(f"更新解题模板失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"更新解题模板失败: {str(e)}")
+
+@app.delete("/api/solve-templates/{name}")
+async def delete_solve_template(
+    name: str,
+    db: Session = Depends(get_db)
+):
+    """删除解题模板"""
+    try:
+        auto_solver = AutoSolver(db, ai_service)
+        success = await auto_solver.delete_solve_template(name)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="模板不存在")
+        
+        return {"message": "模板删除成功"}
+        
+    except Exception as e:
+        logger.error(f"删除解题模板失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"删除解题模板失败: {str(e)}")
+
+@app.post("/api/solve-templates/{name}/enable")
+async def enable_solve_template(
+    name: str,
+    db: Session = Depends(get_db)
+):
+    """启用解题模板"""
+    try:
+        auto_solver = AutoSolver(db, ai_service)
+        success = await auto_solver.enable_solve_template(name)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="模板不存在")
+        
+        return {"message": "模板启用成功"}
+        
+    except Exception as e:
+        logger.error(f"启用解题模板失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"启用解题模板失败: {str(e)}")
+
+@app.post("/api/solve-templates/{name}/disable")
+async def disable_solve_template(
+    name: str,
+    db: Session = Depends(get_db)
+):
+    """禁用解题模板"""
+    try:
+        auto_solver = AutoSolver(db, ai_service)
+        success = await auto_solver.disable_solve_template(name)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="模板不存在")
+        
+        return {"message": "模板禁用成功"}
+        
+    except Exception as e:
+        logger.error(f"禁用解题模板失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"禁用解题模板失败: {str(e)}")
+
+@app.get("/api/challenges")
+async def get_challenges(challenge_type: str = None, limit: int = 50):
+    """获取题目列表"""
+    try:
+        challenges = data_service.get_challenges(challenge_type=challenge_type, limit=limit)
+        
+        return [
+            {
+                "id": challenge["id"],
+                "description": challenge["description"][:100] + "..." if len(challenge["description"]) > 100 else challenge["description"],
+                "type": challenge["type"],
+                "timestamp": challenge["timestamp"]
+            }
+            for challenge in challenges
+        ]
+    except Exception as e:
+        logger.error(f"获取题目列表失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取题目列表失败: {str(e)}")
+
+@app.get("/api/challenges/{challenge_id}")
+async def get_challenge_detail(challenge_id: str):
+    """获取题目详情"""
+    try:
+        challenge = data_service.get_challenge(challenge_id)
+        if not challenge:
+            raise HTTPException(status_code=404, detail="题目不存在")
+        
+        return challenge
+    except Exception as e:
+        logger.error(f"获取题目详情失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取题目详情失败: {str(e)}")
+
+@app.get("/api/history")
+async def get_history():
+    """获取分析历史"""
+    try:
+        history = data_service.get_analysis_history(limit=50)
+        return [
+            {
+                "id": h["id"],
+                "challenge_id": h["challenge_id"],
+                "description": h["analysis_data"]["description"][:100] + "..." if len(h["analysis_data"]["description"]) > 100 else h["analysis_data"]["description"],
+                "type": h["analysis_data"]["type"],
+                "timestamp": h["timestamp"]
+            }
+            for h in history
+        ]
+    except Exception as e:
+        logger.error(f"获取历史记录失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取历史记录失败: {str(e)}")
+
+@app.get("/api/stats")
+async def get_stats():
+    """获取统计信息"""
+    try:
+        stats = data_service.get_stats()
+        
+        return {
+            "total_questions": stats["total_challenges"],
+            "type_stats": stats["challenges_by_type"],
+            "total_history": stats["total_history"]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取AI提供者信息失败: {str(e)}")
+        logger.error(f"获取统计信息失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
 
-@app.post("/api/ai/switch")
-async def switch_ai_provider(provider_type: str = Form(...)):
+@app.get("/api/ai-providers")
+async def get_ai_providers():
+    """获取可用的AI提供者"""
+    try:
+        from ai_providers import AIProviderFactory
+        
+        available_providers = AIProviderFactory.get_available_providers()
+        current_provider = ai_service.provider_type
+        
+        return {
+            "current_provider": current_provider,
+            "current_provider_info": available_providers.get(current_provider, {}),
+            "available_providers": available_providers
+        }
+    except Exception as e:
+        logger.error(f"获取AI提供者失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取AI提供者失败: {str(e)}")
+
+@app.post("/api/ai-providers/switch")
+async def switch_ai_provider(provider_type: str = Body(..., embed=True)):
     """切换AI提供者"""
     try:
         success = ai_service.switch_provider(provider_type)
         if success:
+            # 保存到用户配置
+            user_config = data_service.get_user_config()
+            user_config["ai_provider"] = provider_type
+            data_service.save_user_config(user_config)
+            
             return {
-                "message": f"成功切换到 {provider_type}",
+                "message": f"AI提供者切换成功: {provider_type}",
                 "current_provider": provider_type
             }
         else:
-            raise HTTPException(status_code=400, detail="切换AI提供者失败")
+            raise HTTPException(status_code=400, detail="AI提供者切换失败")
     except Exception as e:
+        logger.error(f"切换AI提供者失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"切换AI提供者失败: {str(e)}")
 
-@app.post("/api/analyze/with-provider", response_model=QuestionResponse)
-async def analyze_challenge_with_provider(
-    text: str = Form(None),
-    file: UploadFile = File(None),
-    provider: str = Form(None),
-    db: Session = Depends(get_db)
-):
-    """使用指定AI提供者分析CTF题目"""
+@app.get("/api/ai-providers/status")
+async def get_ai_provider_status():
+    """获取AI提供者状态和性能统计"""
     try:
-        # 获取题目描述
-        description = ""
-        file_content = ""
+        stats = ai_service.get_performance_stats()
+        provider_info = ai_service.get_provider_info()
         
-        if text:
-            description = text
-        
-        if file:
-            file_content = await file.read()
-            if file.content_type and file.content_type.startswith('text/'):
-                description += f"\n文件内容:\n{file_content.decode('utf-8')}"
-            else:
-                description += f"\n上传了文件: {file.filename} (二进制文件)"
-        
-        if not description.strip():
-            raise HTTPException(status_code=400, detail="请提供题目描述或上传文件")
-        
-        # 检测题目类型
-        question_type = detect_question_type(description, file.filename if file else None)
-        
-        # 如果指定了提供者，创建临时AI服务实例
-        if provider:
-            temp_ai_service = AIService(provider_type=provider)
-            ai_response = await temp_ai_service.analyze_challenge(description, question_type)
-            used_provider = provider
-        else:
-            ai_response = await ai_service.analyze_challenge(description, question_type)
-            used_provider = ai_service.provider_type
-        
-        # 获取推荐工具
-        recommended_tools = get_recommended_tools(question_type, db)
-        
-        # 保存到数据库
-        db_question = Question(
-            description=description,
-            type=question_type,
-            ai_response=ai_response,
-            file_name=file.filename if file else None
-        )
-        db.add(db_question)
-        db.commit()
-        db.refresh(db_question)
-        
-        return QuestionResponse(
-            id=db_question.id,
-            description=description,
-            type=question_type,
-            ai_response=ai_response,
-            recommended_tools=recommended_tools,
-            timestamp=db_question.timestamp
+        return {
+            "provider_info": provider_info,
+            "performance_stats": stats
+        }
+    except Exception as e:
+        logger.error(f"获取AI提供者状态失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取AI提供者状态失败: {str(e)}")
+
+@app.post("/api/conversations")
+async def create_conversation(request: ConversationCreateRequest):
+    """创建新的对话会话"""
+    try:
+        conversation_id = conversation_service.create_conversation(
+            user_id=request.user_id,
+            initial_context=request.initial_context
         )
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
-
-@app.get("/api/settings")
-async def get_settings():
-    """获取当前AI服务配置"""
-    try:
-        from config import config
-        
-        # 获取当前配置，但隐藏敏感信息
-        settings = {
-            "provider": config.AI_SERVICE,
-            "deepseek_api_url": config.DEEPSEEK_API_URL,
-            "deepseek_model": config.DEEPSEEK_MODEL,
-            "siliconflow_api_url": config.SILICONFLOW_API_URL, 
-            "siliconflow_model": config.SILICONFLOW_MODEL,
-            "openai_compatible_api_url": config.OPENAI_COMPATIBLE_API_URL,
-            "openai_compatible_model": config.OPENAI_COMPATIBLE_MODEL,
-            "local_model_path": config.LOCAL_MODEL_PATH,
-            "local_model_type": config.LOCAL_MODEL_TYPE,
-            "local_model_device": config.LOCAL_MODEL_DEVICE,
-            "local_model_max_length": config.LOCAL_MODEL_MAX_LENGTH,
-            "local_model_temperature": config.LOCAL_MODEL_TEMPERATURE,
+        return {
+            "success": True,
+            "conversation_id": conversation_id
         }
-        
-        # 只返回非空的API Key的长度提示
-        if config.DEEPSEEK_API_KEY:
-            settings["deepseek_api_key"] = "*" * min(len(config.DEEPSEEK_API_KEY), 8) + "..." if len(config.DEEPSEEK_API_KEY) > 8 else "*" * len(config.DEEPSEEK_API_KEY)
-        else:
-            settings["deepseek_api_key"] = ""
-        
-        if config.SILICONFLOW_API_KEY:
-            settings["siliconflow_api_key"] = "*" * min(len(config.SILICONFLOW_API_KEY), 8) + "..." if len(config.SILICONFLOW_API_KEY) > 8 else "*" * len(config.SILICONFLOW_API_KEY)
-        else:
-            settings["siliconflow_api_key"] = ""
-        
-        if config.OPENAI_COMPATIBLE_API_KEY:
-            settings["openai_compatible_api_key"] = "*" * min(len(config.OPENAI_COMPATIBLE_API_KEY), 8) + "..." if len(config.OPENAI_COMPATIBLE_API_KEY) > 8 else "*" * len(config.OPENAI_COMPATIBLE_API_KEY)
-        else:
-            settings["openai_compatible_api_key"] = ""
-        
-        return settings
-        
     except Exception as e:
-        logger.error(f"获取配置失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/settings")
-async def update_settings(settings: dict):
-    """更新AI服务配置"""
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """获取对话详情"""
     try:
-        import os
-        from dotenv import set_key, load_dotenv
-        
-        env_file = ".env"
-        
-        # 确保.env文件存在
-        if not os.path.exists(env_file):
-            # 如果.env不存在，从env.example复制
-            import shutil
-            if os.path.exists("env.example"):
-                shutil.copy("env.example", env_file)
-                logger.info("已从env.example创建.env文件")
-            else:
-                # 创建空的.env文件
-                open(env_file, 'a').close()
-                logger.info("已创建空的.env文件")
-        
-        # 映射前端字段到环境变量
-        env_mapping = {
-            "provider": "AI_SERVICE",
-            "deepseek_api_key": "DEEPSEEK_API_KEY",
-            "deepseek_api_url": "DEEPSEEK_API_URL", 
-            "deepseek_model": "DEEPSEEK_MODEL",
-            "siliconflow_api_key": "SILICONFLOW_API_KEY",
-            "siliconflow_api_url": "SILICONFLOW_API_URL",
-            "siliconflow_model": "SILICONFLOW_MODEL",
-            "openai_compatible_api_url": "OPENAI_COMPATIBLE_API_URL",
-            "openai_compatible_api_key": "OPENAI_COMPATIBLE_API_KEY",
-            "openai_compatible_model": "OPENAI_COMPATIBLE_MODEL",
-            "local_model_path": "LOCAL_MODEL_PATH",
-            "local_model_type": "LOCAL_MODEL_TYPE", 
-            "local_model_device": "LOCAL_MODEL_DEVICE",
-            "local_model_max_length": "LOCAL_MODEL_MAX_LENGTH",
-            "local_model_temperature": "LOCAL_MODEL_TEMPERATURE",
-        }
-        
-        # 验证必需的配置
-        provider = settings.get("provider", "deepseek")
-        validation_errors = []
-        
-        if provider == "deepseek":
-            if not settings.get("deepseek_api_key") or str(settings.get("deepseek_api_key", "")).startswith('*'):
-                if not os.getenv("DEEPSEEK_API_KEY"):  # 如果环境变量中也没有
-                    validation_errors.append("DeepSeek API Key 是必需的")
-        elif provider == "siliconflow":
-            if not settings.get("siliconflow_api_key") or str(settings.get("siliconflow_api_key", "")).startswith('*'):
-                if not os.getenv("SILICONFLOW_API_KEY"):
-                    validation_errors.append("硅基流动 API Key 是必需的")
-        elif provider == "openai_compatible":
-            if not settings.get("openai_compatible_api_url"):
-                validation_errors.append("OpenAI兼容API URL 是必需的")
-        elif provider == "local":
-            if not settings.get("local_model_path"):
-                validation_errors.append("本地模型路径是必需的")
-        
-        if validation_errors:
-            return HTTPException(status_code=400, detail=f"配置验证失败: {'; '.join(validation_errors)}")
-        
-        # 更新环境变量文件
-        updated_fields = []
-        for field, env_var in env_mapping.items():
-            if field in settings and settings[field] is not None:
-                value = settings[field]
-                # 跳过掩码的API Key（除非用户重新输入了）
-                if field.endswith('_api_key') and str(value).startswith('*'):
-                    continue
-                
-                # 转换为字符串并写入
-                str_value = str(value)
-                if str_value.strip():  # 只写入非空值
-                    set_key(env_file, env_var, str_value)
-                    updated_fields.append(field)
-                    logger.info(f"已更新配置: {env_var}")
-        
-        # 重新加载环境变量
-        load_dotenv(override=True)
-        
-        # 重新创建AI服务实例以应用新配置
-        global ai_service
-        from config import Config
-        from ai_service import AIService
-        
-        # 重新加载配置
-        new_config = Config()
-        ai_service = AIService(provider_type=new_config.AI_SERVICE)
-        
-        logger.info(f"配置更新成功，已更新字段: {updated_fields}")
+        conversation = data_service.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="对话不存在")
         
         return {
-            "message": "配置更新成功，已自动应用新设置",
-            "updated_fields": updated_fields,
-            "current_provider": new_config.AI_SERVICE
+            "success": True,
+            "conversation": conversation
         }
-        
     except Exception as e:
-        logger.error(f"更新配置失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/settings/validate")
-async def validate_settings(settings: dict):
-    """验证配置但不保存"""
+@app.get("/api/conversations/user/{user_id}")
+async def get_user_conversations(user_id: str, limit: int = 10):
+    """获取用户的对话列表"""
     try:
-        provider = settings.get("provider", "deepseek")
-        validation_result = {
-            "valid": True,
-            "errors": [],
-            "warnings": []
-        }
-        
-        if provider == "deepseek":
-            api_key = settings.get("deepseek_api_key")
-            if not api_key or str(api_key).startswith('*'):
-                validation_result["errors"].append("DeepSeek API Key 是必需的")
-            elif len(str(api_key)) < 10:
-                validation_result["warnings"].append("API Key 长度似乎不正确")
-                
-            api_url = settings.get("deepseek_api_url")
-            if api_url and not api_url.startswith("https://"):
-                validation_result["warnings"].append("建议使用HTTPS URL")
-                
-        elif provider == "siliconflow":
-            api_key = settings.get("siliconflow_api_key")
-            if not api_key or str(api_key).startswith('*'):
-                validation_result["errors"].append("硅基流动 API Key 是必需的")
-            elif len(str(api_key)) < 10:
-                validation_result["warnings"].append("API Key 长度似乎不正确")
-                
-        elif provider == "openai_compatible":
-            api_url = settings.get("openai_compatible_api_url")
-            if not api_url:
-                validation_result["errors"].append("OpenAI兼容API URL 是必需的")
-            elif not (api_url.startswith("http://") or api_url.startswith("https://")):
-                validation_result["errors"].append("API URL 格式不正确")
-                
-        elif provider == "local":
-            model_path = settings.get("local_model_path")
-            if not model_path:
-                validation_result["errors"].append("本地模型路径是必需的")
-            elif not os.path.exists(str(model_path)):
-                validation_result["warnings"].append("指定的模型路径不存在")
-        
-        if validation_result["errors"]:
-            validation_result["valid"] = False
-        
-        return validation_result
-        
-    except Exception as e:
-        logger.error(f"配置验证失败: {str(e)}", exc_info=True)
-        return {
-            "valid": False,
-            "errors": [f"验证过程出错: {str(e)}"],
-            "warnings": []
-        }
-
-@app.post("/api/test-connection")
-async def test_connection(request: dict):
-    """测试AI服务连接"""
-    try:
-        provider = request.get("provider")
-        temp_config = request.get("config", {})
-        
-        if not provider:
-            # 测试当前配置
-            test_ai_service = ai_service
-            provider_name = ai_service.provider_type
-        else:
-            # 使用临时配置测试指定提供者
-            if temp_config:
-                # 临时设置环境变量进行测试
-                original_env = {}
-                temp_env_vars = {}
-                
-                if provider == "deepseek":
-                    if temp_config.get("deepseek_api_key") and not str(temp_config.get("deepseek_api_key", "")).startswith('*'):
-                        temp_env_vars["DEEPSEEK_API_KEY"] = temp_config["deepseek_api_key"]
-                    if temp_config.get("deepseek_api_url"):
-                        temp_env_vars["DEEPSEEK_API_URL"] = temp_config["deepseek_api_url"]
-                    if temp_config.get("deepseek_model"):
-                        temp_env_vars["DEEPSEEK_MODEL"] = temp_config["deepseek_model"]
-                        
-                elif provider == "siliconflow":
-                    if temp_config.get("siliconflow_api_key") and not str(temp_config.get("siliconflow_api_key", "")).startswith('*'):
-                        temp_env_vars["SILICONFLOW_API_KEY"] = temp_config["siliconflow_api_key"]
-                    if temp_config.get("siliconflow_api_url"):
-                        temp_env_vars["SILICONFLOW_API_URL"] = temp_config["siliconflow_api_url"]
-                    if temp_config.get("siliconflow_model"):
-                        temp_env_vars["SILICONFLOW_MODEL"] = temp_config["siliconflow_model"]
-                        
-                elif provider == "openai_compatible":
-                    if temp_config.get("openai_compatible_api_url"):
-                        temp_env_vars["OPENAI_COMPATIBLE_API_URL"] = temp_config["openai_compatible_api_url"]
-                    if temp_config.get("openai_compatible_api_key") and not str(temp_config.get("openai_compatible_api_key", "")).startswith('*'):
-                        temp_env_vars["OPENAI_COMPATIBLE_API_KEY"] = temp_config["openai_compatible_api_key"]
-                    if temp_config.get("openai_compatible_model"):
-                        temp_env_vars["OPENAI_COMPATIBLE_MODEL"] = temp_config["openai_compatible_model"]
-                        
-                elif provider == "local":
-                    if temp_config.get("local_model_path"):
-                        temp_env_vars["LOCAL_MODEL_PATH"] = temp_config["local_model_path"]
-                    if temp_config.get("local_model_device"):
-                        temp_env_vars["LOCAL_MODEL_DEVICE"] = temp_config["local_model_device"]
-                
-                # 临时设置环境变量
-                for key, value in temp_env_vars.items():
-                    original_env[key] = os.getenv(key)
-                    os.environ[key] = str(value)
-                
-                try:
-                    # 创建临时AI服务实例
-                    test_ai_service = AIService(provider_type=provider)
-                    provider_name = provider
-                finally:
-                    # 恢复原始环境变量
-                    for key, original_value in original_env.items():
-                        if original_value is None:
-                            os.environ.pop(key, None)
-                        else:
-                            os.environ[key] = original_value
-            else:
-                # 使用当前配置测试指定提供者
-                test_ai_service = AIService(provider_type=provider)
-                provider_name = provider
-        
-        # 发送简单的测试请求
-        test_description = "这是一个连接测试，请简单回复'连接成功'"
-        test_response = await test_ai_service.analyze_challenge(test_description, "misc")
-        
-        if test_response and len(test_response.strip()) > 0:
-            # 检查响应是否包含错误信息
-            error_indicators = ["暂时不可用", "请稍后重试", "失败", "错误", "异常"]
-            if any(indicator in test_response for indicator in error_indicators):
-                raise Exception(f"AI服务响应包含错误信息: {test_response[:100]}...")
-            
-            return {
-                "success": True,
-                "message": f"✅ {provider_name} 连接测试成功",
-                "provider": provider_name,
-                "response_preview": test_response[:200] + "..." if len(test_response) > 200 else test_response
-            }
-        else:
-            raise Exception("AI服务返回空响应")
-            
-    except Exception as e:
-        error_message = str(e)
-        logger.error(f"连接测试失败: {error_message}", exc_info=True)
-        
-        # 提供更友好的错误信息
-        if "API" in error_message.upper():
-            if "401" in error_message or "unauthorized" in error_message.lower():
-                friendly_message = "❌ API密钥无效或已过期，请检查密钥是否正确"
-            elif "403" in error_message or "forbidden" in error_message.lower():
-                friendly_message = "❌ API访问被拒绝，请检查密钥权限"
-            elif "timeout" in error_message.lower():
-                friendly_message = "❌ 连接超时，请检查网络连接或API服务状态"
-            elif "connection" in error_message.lower():
-                friendly_message = "❌ 无法连接到API服务，请检查网络或API地址"
-            else:
-                friendly_message = f"❌ API连接失败: {error_message}"
-        else:
-            friendly_message = f"❌ 连接测试失败: {error_message}"
+        conversations = data_service.get_user_conversations(user_id, limit)
         
         return {
-            "success": False,
-            "message": friendly_message,
-            "provider": provider or ai_service.provider_type,
-            "error_details": error_message
+            "success": True,
+            "conversations": conversations
         }
-
-@app.get("/docs/{filename}", response_class=PlainTextResponse)
-async def get_documentation(filename: str):
-    """获取文档内容"""
-    try:
-        # 安全性检查：只允许访问docs目录下的.md文件
-        if not filename.endswith('.md'):
-            raise HTTPException(status_code=400, detail="只支持Markdown文件")
-        
-        # 构建文档文件路径
-        docs_dir = os.path.join(os.path.dirname(__file__), "..", "docs")
-        file_path = os.path.join(docs_dir, filename)
-        
-        # 安全性检查：确保文件在docs目录内
-        if not os.path.abspath(file_path).startswith(os.path.abspath(docs_dir)):
-            raise HTTPException(status_code=400, detail="无效的文件路径")
-        
-        # 检查文件是否存在
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="文档不存在")
-        
-        # 读取文件内容
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        return content
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"读取文档失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"读取文档失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/docs/list")
-async def list_documentation():
-    """获取可用文档列表"""
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """删除对话"""
     try:
-        docs_dir = os.path.join(os.path.dirname(__file__), "..", "docs")
-        docs = []
+        success = data_service.delete_conversation(conversation_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="对话不存在")
         
-        if os.path.exists(docs_dir):
-            for filename in os.listdir(docs_dir):
-                if filename.endswith('.md'):
-                    file_path = os.path.join(docs_dir, filename)
-                    # 获取文件信息
-                    stat = os.stat(file_path)
-                    docs.append({
-                        "filename": filename,
-                        "title": filename.replace('.md', ''),
-                        "size": stat.st_size,
-                        "modified": stat.st_mtime
-                    })
-        
-        return {"documents": docs}
-        
+        return {
+            "success": True,
+            "message": "对话已删除"
+        }
     except Exception as e:
-        logger.error(f"获取文档列表失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取文档列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/conversations/{conversation_id}/messages")
+async def add_message(conversation_id: str, request: MessageRequest):
+    """添加消息到对话"""
+    try:
+        success = conversation_service.add_message(
+            conversation_id=conversation_id,
+            role=request.role,
+            content=request.content,
+            metadata=request.metadata
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="对话不存在")
+        
+        return {
+            "success": True,
+            "message": "消息已添加"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tools")
+async def get_tools(category: str = None):
+    """获取工具列表"""
+    try:
+        tools = data_service.get_tools(category=category)
+        return tools
+    except Exception as e:
+        logger.error(f"获取工具列表失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取工具列表失败: {str(e)}")
+
+@app.get("/api/tools/{name}")
+async def get_tool_detail(name: str):
+    """获取工具详情"""
+    try:
+        tool = data_service.get_tool_by_name(name)
+        if not tool:
+            raise HTTPException(status_code=404, detail="工具不存在")
+        return tool
+    except Exception as e:
+        logger.error(f"获取工具详情失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取工具详情失败: {str(e)}")
+
+@app.post("/api/tools")
+async def add_tool(tool: dict = Body(...)):
+    """添加工具"""
+    try:
+        if not tool.get('name'):
+            raise HTTPException(status_code=400, detail="工具名称不能为空")
+        
+        # 检查工具是否已存在
+        existing_tool = data_service.get_tool_by_name(tool['name'])
+        if existing_tool:
+            raise HTTPException(status_code=400, detail="工具已存在")
+        
+        # 生成新的ID
+        tools = data_service.get_tools()
+        max_id = max([t.get('id', 0) for t in tools]) if tools else 0
+        tool['id'] = max_id + 1
+        
+        success = data_service.add_tool(tool)
+        if not success:
+            raise HTTPException(status_code=500, detail="添加工具失败")
+        
+        return {"success": True, "tool": tool}
+    except Exception as e:
+        logger.error(f"添加工具失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"添加工具失败: {str(e)}")
+
+@app.put("/api/tools/{name}")
+async def update_tool(name: str, updated_tool: dict = Body(...)):
+    """更新工具"""
+    try:
+        success = data_service.update_tool(name, updated_tool)
+        if not success:
+            raise HTTPException(status_code=404, detail="工具不存在")
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"更新工具失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"更新工具失败: {str(e)}")
+
+@app.delete("/api/tools/{name}")
+async def delete_tool(name: str):
+    """删除工具"""
+    try:
+        success = data_service.delete_tool(name)
+        if not success:
+            raise HTTPException(status_code=404, detail="工具不存在")
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"删除工具失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"删除工具失败: {str(e)}")
+
+@app.get("/api/user-config")
+async def get_user_config():
+    """获取用户配置"""
+    try:
+        config = data_service.get_config("user_config")
+        if not config:
+            raise HTTPException(status_code=404, detail="未找到用户配置")
+        return config
+    except Exception as e:
+        logger.error(f"获取用户配置失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取用户配置失败: {str(e)}")
+
+@app.post("/api/user-config")
+async def save_user_config(config: dict = Body(...)):
+    """保存用户配置"""
+    try:
+        ok = data_service.save_config("user_config", config)
+        if not ok:
+            raise HTTPException(status_code=500, detail="保存配置失败")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"保存用户配置失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"保存用户配置失败: {str(e)}")
+
+@app.post("/api/export/{data_type}")
+async def export_data(data_type: str, format: str = "json"):
+    """导出数据"""
+    try:
+        if data_type == "history":
+            data = data_service.get_analysis_history(limit=1000)
+        elif data_type == "challenges":
+            data = data_service.get_challenges(limit=1000)
+        elif data_type == "configs":
+            data = [data_service.get_all_configs()]
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的数据类型: {data_type}")
+        
+        if not data:
+            raise HTTPException(status_code=404, detail=f"没有找到{data_type}数据")
+        
+        file_path = data_service.export_data(data_type, data, format)
+        filename = file_path.split("/")[-1]
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "file_path": file_path,
+            "data_count": len(data),
+            "format": format
+        }
+    except Exception as e:
+        logger.error(f"导出{data_type}失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+
+@app.get("/api/exports")
+async def list_exports():
+    """获取可下载的导出文件列表"""
+    try:
+        exports = []
+        for file_path in sorted(data_service.exports_dir.glob("export_*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+            exports.append({
+                "filename": file_path.name,
+                "size": file_path.stat().st_size,
+                "created_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+            })
+        return exports
+    except Exception as e:
+        logger.error(f"获取导出文件列表失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取导出文件列表失败: {str(e)}")
+
+@app.get("/api/exports/{filename}")
+async def download_export(filename: str):
+    """下载指定导出文件"""
+    try:
+        file_path = data_service.exports_dir / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="文件不存在")
+        
+        return FileResponse(
+            path=str(file_path),
+            filename=filename,
+            media_type="application/octet-stream"
+        )
+    except Exception as e:
+        logger.error(f"下载导出文件失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"下载失败: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host=os.getenv("BACKEND_HOST", "0.0.0.0"),
-        port=int(os.getenv("BACKEND_PORT", 8000)),
-        reload=True
-    ) 
+    uvicorn.run(app, host=config.BACKEND_HOST, port=config.BACKEND_PORT) 

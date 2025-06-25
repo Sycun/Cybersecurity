@@ -1,0 +1,8 @@
+{
+  "id": "example-web-001",
+  "description": "这是一个Web安全题目示例。题目要求：\n\n1. 访问目标网站 http://example.com\n2. 发现SQL注入漏洞\n3. 获取数据库中的flag\n\n提示：注意URL参数的处理方式。",
+  "type": "web",
+  "ai_response": "## 题目分析\n\n这是一个典型的Web安全题目，主要考察SQL注入漏洞的发现和利用。\n\n### 解题步骤\n\n1. **信息收集**\n   - 访问目标网站，观察页面结构\n   - 查看源代码，寻找可能的输入点\n   - 检查URL参数、表单字段等\n\n2. **漏洞探测**\n   - 在URL参数中尝试SQL注入payload\n   - 常见的测试payload：`'`, `1' OR '1'='1`, `1' UNION SELECT 1,2,3--`\n   - 观察页面响应，判断是否存在SQL注入\n\n3. **漏洞利用**\n   - 确定注入点后，构造合适的SQL语句\n   - 获取数据库信息：`1' UNION SELECT 1,2,database()--`\n   - 获取表名：`1' UNION SELECT 1,2,table_name FROM information_schema.tables--`\n   - 获取flag：`1' UNION SELECT 1,2,flag FROM flag_table--`\n\n### 推荐工具\n\n- **Burp Suite**: 拦截和修改HTTP请求\n- **SQLMap**: 自动化SQL注入工具\n- **浏览器开发者工具**: 查看网络请求和响应\n\n### 注意事项\n\n- 确保在合法环境中进行测试\n- 注意SQL语句的语法正确性\n- 可能需要绕过WAF等防护措施",
+  "file_name": null,
+  "timestamp": "2024-01-15T10:30:00.000000"
+} 

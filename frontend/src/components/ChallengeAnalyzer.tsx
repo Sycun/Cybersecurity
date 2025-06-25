@@ -1,15 +1,39 @@
 import React, { useEffect, useState } from 'react';
-import { AIProvidersResponse, analyzeChallenge, analyzeChallengeWithProvider, getAIProviders } from '../services/api';
+import { analyzeChallenge, getAIProviders } from '../services/api';
 import { QuestionResponse } from '../types';
+import './ChallengeAnalyzer.css';
 
-const ChallengeAnalyzer: React.FC = () => {
+interface AIProvider {
+  name: string;
+  description: string;
+  type: 'cloud' | 'local' | 'local_cloud';
+  languages: string[];
+  max_tokens: number;
+  features: string[];
+}
+
+interface AIProvidersData {
+  current_provider: string;
+  current_provider_info: AIProvider;
+  available_providers: Record<string, AIProvider>;
+}
+
+interface ChallengeAnalyzerProps {
+  onAnalysisComplete?: (result: any) => void;
+}
+
+const ChallengeAnalyzer: React.FC<ChallengeAnalyzerProps> = ({ onAnalysisComplete }) => {
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QuestionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [aiProviders, setAiProviders] = useState<AIProvidersResponse | null>(null);
+  const [aiProviders, setAiProviders] = useState<AIProvidersData | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>('');
+  const [useContext, setUseContext] = useState(true);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationHistory, setConversationHistory] = useState<any[]>([]);
+  const [questionType, setQuestionType] = useState('web');
 
   useEffect(() => {
     loadAIProviders();
@@ -19,9 +43,12 @@ const ChallengeAnalyzer: React.FC = () => {
     try {
       const providers = await getAIProviders();
       setAiProviders(providers);
-      setSelectedProvider(providers.current_provider);
-    } catch (err) {
-      console.error('加载AI提供者失败:', err);
+      if (providers && providers.available_providers) {
+        const firstProvider = Object.keys(providers.available_providers)[0];
+        setSelectedProvider(firstProvider);
+      }
+    } catch (error) {
+      console.error('加载AI提供者失败:', error);
     }
   };
 
@@ -31,8 +58,8 @@ const ChallengeAnalyzer: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!description.trim() && !file) {
-      setError('请输入题目描述或上传文件');
+    if (!description.trim()) {
+      setError('请输入题目描述');
       return;
     }
 
@@ -40,253 +67,219 @@ const ChallengeAnalyzer: React.FC = () => {
     setError(null);
 
     try {
-      let response: QuestionResponse;
-      if (selectedProvider && selectedProvider !== aiProviders?.current_provider) {
-        response = await analyzeChallengeWithProvider(description, file, selectedProvider);
+      const response = await analyzeChallenge({
+        description,
+        question_type: questionType,
+        ai_provider: selectedProvider,
+        conversation_id: conversationId,
+        use_context: useContext
+      });
+
+      if (response.success) {
+        // 创建QuestionResponse格式的结果
+        const questionResult: QuestionResponse = {
+          id: conversationId || 'temp-id',
+          description: description,
+          type: questionType,
+          ai_response: response.response,
+          recommended_tools: [],
+          timestamp: new Date().toISOString(),
+          ai_provider: response.ai_provider
+        };
+        
+        setResult(questionResult);
+        setConversationId(response.conversation_id || null);
+        
+        // 更新对话历史
+        if (response.conversation_id) {
+          setConversationHistory(prev => [...prev, {
+            role: 'user',
+            content: description
+          }, {
+            role: 'assistant',
+            content: response.response
+          }]);
+        }
+
+        if (onAnalysisComplete) {
+          onAnalysisComplete(questionResult);
+        }
       } else {
-        response = await analyzeChallenge(description, file);
+        setError('分析失败，请重试');
       }
-      setResult(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '分析失败，请重试');
+    } catch (err: any) {
+      setError(err?.message || '分析失败，请重试');
     } finally {
       setLoading(false);
     }
   };
 
-  const containerStyle: React.CSSProperties = {
-    padding: '20px',
-    fontFamily: 'Arial, sans-serif',
-    color: '#fff',
-    backgroundColor: '#121212'
+  const getProviderInfo = (provider: string) => {
+    const providerInfo = {
+      deepseek: { type: '在线API', color: '#00ff88', description: 'DeepSeek AI服务' },
+      siliconflow: { type: '在线API', color: '#ff6b6b', description: '硅基流动AI服务' },
+      local: { type: '本地模型', color: '#4ecdc4', description: '本地部署的AI模型' },
+      openai_compatible: { type: '兼容API', color: '#45b7d1', description: 'OpenAI兼容API服务' }
+    };
+    return providerInfo[provider as keyof typeof providerInfo] || { type: '未知', color: '#999', description: '未知AI服务' };
   };
 
-  const cardStyle: React.CSSProperties = {
+  const containerStyle = {
+    maxWidth: '1200px',
+    margin: '0 auto',
+    padding: '20px',
+    fontFamily: 'Arial, sans-serif'
+  };
+
+  const cardStyle = {
     backgroundColor: '#1e1e1e',
-    border: '1px solid #333',
     borderRadius: '8px',
-    padding: '20px',
-    margin: '20px 0',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+    padding: '24px',
+    marginBottom: '20px',
+    border: '1px solid #333'
   };
 
-  const inputStyle: React.CSSProperties = {
+  const inputStyle = {
     width: '100%',
     padding: '12px',
-    backgroundColor: '#2e2e2e',
-    border: '1px solid #555',
+    border: '1px solid #444',
     borderRadius: '4px',
+    backgroundColor: '#2a2a2a',
     color: '#fff',
-    fontSize: '14px',
-    fontFamily: 'inherit'
+    fontSize: '14px'
   };
 
-  const buttonStyle: React.CSSProperties = {
+  const buttonStyle = {
+    backgroundColor: '#007acc',
+    color: 'white',
     padding: '12px 24px',
-    margin: '8px',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: '16px',
     fontWeight: 'bold'
   };
 
-  const primaryButtonStyle: React.CSSProperties = {
-    ...buttonStyle,
-    backgroundColor: '#00bcd4',
-    color: '#000'
+  const resultStyle = {
+    backgroundColor: '#2a2a2a',
+    borderRadius: '8px',
+    padding: '20px',
+    marginTop: '20px',
+    border: '1px solid #444'
   };
 
-  const getProviderInfo = (providerKey: string) => {
-    const providerInfoMap: { [key: string]: { type: string; description: string; color: string } } = {
-      'deepseek': {
-        type: '在线API',
-        description: '专业代码分析，响应快速',
-        color: '#2196f3'
-      },
-      'siliconflow': {
-        type: '在线API',
-        description: '模型选择丰富，价格优惠',
-        color: '#4caf50'
-      },
-      'local': {
-        type: '本地模型',
-        description: '数据隐私，离线使用',
-        color: '#ff9800'
-      },
-      'openai_compatible': {
-        type: 'OpenAI兼容',
-        description: '灵活部署，标准接口',
-        color: '#9c27b0'
-      }
-    };
-    return providerInfoMap[providerKey] || { type: '未知', description: '', color: '#666' };
+  const clearConversation = () => {
+    setConversationId(null);
+    setConversationHistory([]);
+    setResult(null);
   };
 
   return (
-    <div style={containerStyle}>
-      <h2 style={{ marginBottom: '24px' }}>CTF题目智能分析</h2>
-      
-      <div style={cardStyle}>
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-            AI提供者
-          </label>
-          <select
-            value={selectedProvider}
-            onChange={(e) => setSelectedProvider(e.target.value)}
-            title="选择AI提供者"
-            style={{
-              ...inputStyle,
-              marginBottom: '8px'
-            }}
-          >
-            {aiProviders && Object.entries(aiProviders.available_providers).map(([key, name]) => (
-              <option key={key} value={key}>
-                {name} {key === aiProviders.current_provider ? '(默认)' : ''}
-              </option>
-            ))}
-          </select>
+    <div className="challenge-analyzer">
+      <div className="analyzer-header">
+        <h2>CTF题目智能分析</h2>
+        <div className="analyzer-controls">
+          <div className="control-group">
+            <label>AI模型:</label>
+            <select
+              value={selectedProvider}
+              onChange={(e) => setSelectedProvider(e.target.value)}
+              disabled={loading}
+            >
+              {aiProviders && Object.entries(aiProviders.available_providers).map(([key, provider]) => (
+                <option key={key} value={key}>
+                  {provider.name} {key === aiProviders.current_provider ? '(默认)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           
-          {/* AI提供者状态指示器 */}
-          {selectedProvider && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '8px 12px',
-              backgroundColor: '#2a2a2a',
-              borderRadius: '4px',
-              marginBottom: '16px',
-              fontSize: '14px'
-            }}>
-              <div style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: getProviderInfo(selectedProvider).color,
-                marginRight: '8px'
-              }}></div>
-              <span style={{ marginRight: '12px', fontWeight: 'bold', color: getProviderInfo(selectedProvider).color }}>
-                {getProviderInfo(selectedProvider).type}
-              </span>
-              <span style={{ color: '#ccc', fontSize: '13px' }}>
-                {getProviderInfo(selectedProvider).description}
-              </span>
-            </div>
+          <div className="control-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={useContext}
+                onChange={(e) => setUseContext(e.target.checked)}
+                disabled={loading}
+              />
+              使用上下文增强
+            </label>
+          </div>
+
+          {conversationId && (
+            <button
+              onClick={clearConversation}
+              className="clear-conversation-btn"
+              disabled={loading}
+            >
+              清除对话
+            </button>
           )}
         </div>
+      </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-            题目描述
-          </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="请输入CTF题目的描述、提示信息或相关代码..."
-            rows={6}
-            style={{
-              ...inputStyle,
-              resize: 'vertical'
-            }}
-          />
-        </div>
-        
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-          <label style={{ flex: 1, cursor: 'pointer' }}>
-            <div style={{
-              padding: '12px',
-              backgroundColor: '#333',
-              border: '1px solid #555',
-              borderRadius: '4px',
-              textAlign: 'center',
-              color: '#fff'
-            }}>
-              {file ? file.name : '上传文件'}
-            </div>
-            <input
-              type="file"
-              style={{ display: 'none' }}
-              accept=".txt,.py,.c,.cpp,.js,.php,.html,.pcap,.zip,.exe,.elf,.bin"
-              onChange={handleFileChange}
+      <div className="analyzer-content">
+        <div className="input-section">
+          <div className="form-group">
+            <label>题目类型:</label>
+            <select
+              value={questionType}
+              onChange={(e) => setQuestionType(e.target.value)}
+              disabled={loading}
+            >
+              <option value="web">Web</option>
+              <option value="crypto">Crypto</option>
+              <option value="pwn">Pwn</option>
+              <option value="reverse">Reverse</option>
+              <option value="misc">Misc</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>题目描述:</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="请输入CTF题目的详细描述..."
+              rows={6}
+              disabled={loading}
             />
-          </label>
-          
+          </div>
+
           <button
             onClick={handleSubmit}
-            disabled={loading}
-            style={{
-              ...primaryButtonStyle,
-              flex: 1,
-              opacity: loading ? 0.6 : 1
-            }}
+            disabled={loading || !description.trim()}
+            className="analyze-btn"
           >
             {loading ? '分析中...' : '开始分析'}
           </button>
         </div>
-        
-        {error && (
-          <div style={{
-            backgroundColor: '#f44336',
-            color: '#fff',
-            padding: '12px',
-            borderRadius: '4px',
-            marginTop: '16px'
-          }}>
-            {error}
-          </div>
-        )}
-      </div>
-      
-      {result && (
-        <div style={cardStyle}>
-          <h3>分析结果</h3>
-          <div style={{ margin: '16px 0' }}>
-            <span style={{
-              backgroundColor: '#00bcd4',
-              color: '#000',
-              padding: '4px 8px',
-              borderRadius: '16px',
-              fontSize: '12px',
-              fontWeight: 'bold'
-            }}>
-              {result.type.toUpperCase()}
-            </span>
-          </div>
-          <p><strong>分析时间:</strong> {new Date(result.timestamp).toLocaleString()}</p>
-          
-          <h4>推荐工具</h4>
-          {result.recommended_tools.map(tool => (
-            <div key={tool.id} style={{
-              backgroundColor: '#2e2e2e',
-              padding: '12px',
-              margin: '8px 0',
-              borderRadius: '4px'
-            }}>
-              <strong>{tool.name}</strong><br />
-              <small style={{ color: '#999' }}>{tool.description}</small><br />
-              <code style={{
-                backgroundColor: '#333',
-                padding: '4px',
-                borderRadius: '2px',
-                fontFamily: 'monospace'
-              }}>
-                {tool.command_template}
-              </code>
+
+        <div className="result-section">
+          {conversationId && conversationHistory.length > 0 && (
+            <div className="conversation-info">
+              <h4>对话历史</h4>
+              <div className="conversation-history">
+                {conversationHistory.map((msg, index) => (
+                  <div key={index} className={`history-message ${msg.role}`}>
+                    <strong>{msg.role === 'user' ? '用户' : 'AI'}:</strong>
+                    <span>{msg.content.substring(0, 100)}...</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-          
-          <h4>AI分析结果</h4>
-          <div style={{
-            backgroundColor: '#2e2e2e',
-            padding: '16px',
-            borderRadius: '4px',
-            whiteSpace: 'pre-line'
-          }}>
-            {result.ai_response}
-          </div>
+          )}
+
+          {result && (
+            <div className="analysis-result">
+              <h4>分析结果</h4>
+              <div className="result-content">
+                <pre>{result.ai_response}</pre>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

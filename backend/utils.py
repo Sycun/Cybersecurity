@@ -3,6 +3,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from models import Tool
 from schemas import ToolResponse
+from data_service import data_service
 
 def detect_question_type(description: str, filename: Optional[str] = None) -> str:
     """检测CTF题目类型"""
@@ -76,18 +77,24 @@ def detect_question_type(description: str, filename: Optional[str] = None) -> st
     
     return 'unknown'
 
-def get_recommended_tools(question_type: str, db: Session) -> List[ToolResponse]:
+def get_recommended_tools(question_type: str, db: Session = None) -> List[ToolResponse]:
     """根据题目类型获取推荐工具"""
-    tools = db.query(Tool).filter(
-        Tool.applicable_types.contains(question_type),
-        Tool.is_active == True
-    ).all()
+    # 使用data_service从文件获取工具
+    tools = data_service.get_tools(category=question_type)
     
-    # 如果数据库中没有工具，返回默认工具
-    if not tools:
-        return get_default_tools(question_type)
+    # 转换为ToolResponse格式
+    tool_responses = []
+    for tool in tools:
+        tool_response = ToolResponse(
+            id=tool.get('id', 0),
+            name=tool.get('name', ''),
+            description=tool.get('description', ''),
+            command=tool.get('command', ''),
+            category=tool.get('category', '')
+        )
+        tool_responses.append(tool_response)
     
-    return [ToolResponse.from_orm(tool) for tool in tools]
+    return tool_responses
 
 def get_default_tools(question_type: str) -> List[ToolResponse]:
     """获取默认工具列表"""

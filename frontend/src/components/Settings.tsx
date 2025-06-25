@@ -17,6 +17,8 @@ import {
     Alert,
     Box,
     Button,
+    Card,
+    CardContent,
     Chip,
     CircularProgress,
     Dialog,
@@ -24,20 +26,16 @@ import {
     DialogContent,
     DialogTitle,
     Divider,
-    FormControl,
     IconButton,
     InputAdornment,
-    InputLabel,
     LinearProgress,
-    MenuItem,
-    Select,
     Snackbar,
     TextField,
     Tooltip,
     Typography
 } from '@mui/material';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AIConfig, getSettings, testConnection, updateSettings, validateSettings } from '../services/api';
+import { AIConfig, getAIProviders, getAIProviderStatus, getSettings, switchAIProvider, testConnection, updateSettings, validateSettings } from '../services/api';
 import './Settings.css';
 
 interface SettingsProps {
@@ -59,6 +57,21 @@ interface TestResult {
   error_details?: string;
 }
 
+interface AIProvider {
+  name: string;
+  description: string;
+  type: 'cloud' | 'local' | 'local_cloud';
+  languages: string[];
+  max_tokens: number;
+  features: string[];
+}
+
+interface AIProvidersData {
+  current_provider: string;
+  current_provider_info: AIProvider;
+  available_providers: Record<string, AIProvider>;
+}
+
 const Settings: React.FC<SettingsProps> = ({ open, onClose }) => {
   const [config, setConfig] = useState<AIConfig>({} as AIConfig);
   const [originalConfig, setOriginalConfig] = useState<AIConfig>({} as AIConfig);
@@ -71,6 +84,12 @@ const Settings: React.FC<SettingsProps> = ({ open, onClose }) => {
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [autoSave, setAutoSave] = useState(true);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  
+  // AI Provider相关状态
+  const [aiProviders, setAIProviders] = useState<AIProvidersData | null>(null);
+  const [aiProviderStatus, setAIProviderStatus] = useState<any>(null);
+  const [switchingProvider, setSwitchingProvider] = useState(false);
+  const [loadingProviders, setLoadingProviders] = useState(false);
 
   // 检查是否有未保存的更改
   const checkUnsavedChanges = useCallback(() => {
@@ -112,10 +131,48 @@ const Settings: React.FC<SettingsProps> = ({ open, onClose }) => {
     }
   };
 
+  // 加载AI Provider信息
+  const loadAIProviders = async () => {
+    try {
+      setLoadingProviders(true);
+      const providersData = await getAIProviders();
+      setAIProviders(providersData);
+      
+      // 加载Provider状态
+      try {
+        const statusData = await getAIProviderStatus();
+        setAIProviderStatus(statusData);
+      } catch (error) {
+        console.warn('获取AI Provider状态失败:', error);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: `加载AI提供者失败: ${error}` });
+    } finally {
+      setLoadingProviders(false);
+    }
+  };
+
+  // 切换AI Provider
+  const handleSwitchProvider = async (providerType: string) => {
+    try {
+      setSwitchingProvider(true);
+      const result = await switchAIProvider(providerType);
+      setMessage({ type: 'success', text: result.message });
+      
+      // 重新加载Provider信息
+      await loadAIProviders();
+    } catch (error) {
+      setMessage({ type: 'error', text: `切换AI提供者失败: ${error}` });
+    } finally {
+      setSwitchingProvider(false);
+    }
+  };
+
   // 初始化
   useEffect(() => {
     if (open) {
       loadSettings();
+      loadAIProviders();
     }
   }, [open]);
 
@@ -355,39 +412,150 @@ const Settings: React.FC<SettingsProps> = ({ open, onClose }) => {
                 </Alert>
               )}
 
-              {/* AI服务选择 */}
-              <FormControl fullWidth margin="normal" className="settings-provider-selector">
-                <InputLabel>AI服务提供者</InputLabel>
-                <Select
-                  value={config.provider || ''}
-                  onChange={(e) => handleInputChange('provider', e.target.value)}
-                >
-                  <MenuItem value="deepseek">
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <span>🤖</span>
-                      DeepSeek - 推荐新手使用
+              {/* AI Provider选择 */}
+              <Accordion defaultExpanded className="settings-accordion">
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <AutoIcon />
+                    <Typography variant="subtitle1">AI模型选择</Typography>
+                    {aiProviders && (
+                      <Chip 
+                        label={aiProviders.current_provider_info?.name || aiProviders.current_provider}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  {loadingProviders ? (
+                    <Box display="flex" justifyContent="center" p={2}>
+                      <CircularProgress size={24} />
                     </Box>
-                  </MenuItem>
-                  <MenuItem value="siliconflow">
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <span>🧠</span>
-                      硅基流动 - 性价比高
+                  ) : aiProviders ? (
+                    <Box>
+                      {/* 当前Provider状态 */}
+                      <Card variant="outlined" sx={{ mb: 2 }}>
+                        <CardContent>
+                          <Typography variant="h6" gutterBottom>
+                            当前AI模型: {aiProviders.current_provider_info?.name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                            {aiProviders.current_provider_info?.description}
+                          </Typography>
+                          <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
+                            <Chip 
+                              label={aiProviders.current_provider_info?.type === 'cloud' ? '云端' : 
+                                    aiProviders.current_provider_info?.type === 'local' ? '本地' : '混合'} 
+                              size="small" 
+                              color="secondary"
+                            />
+                            <Chip 
+                              label={`最大${aiProviders.current_provider_info?.max_tokens} tokens`} 
+                              size="small" 
+                              variant="outlined"
+                            />
+                            {aiProviders.current_provider_info?.features?.map((feature, index) => (
+                              <Chip 
+                                key={index}
+                                label={feature === 'analysis' ? '分析' : 
+                                      feature === 'code_generation' ? '代码生成' : feature} 
+                                size="small" 
+                                variant="outlined"
+                              />
+                            ))}
+                          </Box>
+                        </CardContent>
+                      </Card>
+
+                      {/* 可用Provider列表 */}
+                      <Typography variant="subtitle2" gutterBottom>
+                        可用的AI模型:
+                      </Typography>
+                      <Box display="flex" flexDirection="column" gap={1}>
+                        {Object.entries(aiProviders.available_providers).map(([key, provider]) => (
+                          <Card 
+                            key={key} 
+                            variant="outlined"
+                            sx={{ 
+                              cursor: 'pointer',
+                              borderColor: key === aiProviders.current_provider ? 'primary.main' : 'divider',
+                              '&:hover': { borderColor: 'primary.main' }
+                            }}
+                            onClick={() => handleSwitchProvider(key)}
+                          >
+                            <CardContent sx={{ py: 1.5 }}>
+                              <Box display="flex" justifyContent="space-between" alignItems="center">
+                                <Box>
+                                  <Typography variant="subtitle2">
+                                    {provider.name}
+                                    {key === aiProviders.current_provider && (
+                                      <Chip 
+                                        label="当前" 
+                                        size="small" 
+                                        color="primary" 
+                                        sx={{ ml: 1 }}
+                                      />
+                                    )}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {provider.description}
+                                  </Typography>
+                                  <Box display="flex" gap={0.5} mt={0.5}>
+                                    <Chip 
+                                      label={provider.type === 'cloud' ? '云端' : 
+                                            provider.type === 'local' ? '本地' : '混合'} 
+                                      size="small" 
+                                      variant="outlined"
+                                    />
+                                    <Chip 
+                                      label={`${provider.max_tokens} tokens`} 
+                                      size="small" 
+                                      variant="outlined"
+                                    />
+                                  </Box>
+                                </Box>
+                                <Box display="flex" alignItems="center" gap={1}>
+                                  {switchingProvider && key === aiProviders.current_provider ? (
+                                    <CircularProgress size={16} />
+                                  ) : (
+                                    <Button
+                                      variant={key === aiProviders.current_provider ? "outlined" : "contained"}
+                                      size="small"
+                                      disabled={key === aiProviders.current_provider || switchingProvider}
+                                    >
+                                      {key === aiProviders.current_provider ? "当前使用" : "切换"}
+                                    </Button>
+                                  )}
+                                </Box>
+                              </Box>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </Box>
+
+                      {/* Provider状态信息 */}
+                      {aiProviderStatus && (
+                        <Box mt={2}>
+                          <Typography variant="subtitle2" gutterBottom>
+                            性能统计:
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            请求次数: {aiProviderStatus.performance_stats?.provider_stats?.request_count || 0} | 
+                            平均响应时间: {(aiProviderStatus.performance_stats?.provider_stats?.average_response_time || 0).toFixed(2)}s | 
+                            缓存文件: {aiProviderStatus.performance_stats?.cache_files || 0}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
-                  </MenuItem>
-                  <MenuItem value="openai_compatible">
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <span>🔗</span>
-                      OpenAI兼容API - 支持多种服务
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="local">
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <span>💻</span>
-                      本地模型 - 离线使用
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
+                  ) : (
+                    <Typography color="error">
+                      加载AI提供者信息失败
+                    </Typography>
+                  )}
+                </AccordionDetails>
+              </Accordion>
 
               <Divider sx={{ my: 2 }} />
 
