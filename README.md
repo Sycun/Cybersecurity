@@ -49,6 +49,14 @@ This project is a powerful multi-AI provider CTF challenge analysis platform des
 - 📈 **统计面板**: 题目类型分布和解题记录统计
 - 🔍 **历史记录**: 完整的分析历史和解题轨迹
 
+### 🏆 自动解题与Flag提取 / Auto-Solving & Flag Extraction
+
+- 🧩 **一键自动做题**：支持直接输入题目描述和上传附件（如图片、pcap、二进制等），AI自动生成解题脚本、执行并提取flag。
+- 🤖 **多模态支持**：文件内容（图片、流量包、二进制等）可直接交给AI分析，无需本地预处理。
+- 🏷️ **Flag格式限定**：自动提取 `flag{...}` 格式的flag，确保结果准确。
+- 📦 **结构化输出**：API响应包含结构化内容（代码块、表格、图片等），前端可直接渲染。
+- 💡 **失败复盘与AI建议**：自动解题失败时，AI会分析错误并给出改进建议，便于复盘和学习。
+
 ---
 
 ## 🛠️ 技术栈 / Tech Stack
@@ -252,6 +260,14 @@ OPENAI_COMPATIBLE_MODEL=gpt-3.5-turbo
 | 💻 **本地模型** | 本地部署 | 数据私密，可定制化 | 离线环境，隐私保护 |
 | 🔗 **OpenAI兼容** | 兼容API | 标准接口，易于扩展 | 第三方服务，灵活接入 |
 
+### 🏆 Auto-Solving & Flag Extraction
+
+- 🧩 **One-click auto-solving**: Directly input challenge description and upload attachments (image, pcap, binary, etc.), AI will generate and execute scripts to extract the flag automatically.
+- 🤖 **Multimodal support**: File content (image, pcap, binary, etc.) is sent directly to AI for analysis, no local preprocessing required.
+- 🏷️ **Flag format restriction**: Only `flag{...}` format is extracted to ensure accuracy.
+- 📦 **Structured output**: API responses include structured content (code blocks, tables, images, etc.) for direct frontend rendering.
+- 💡 **Failure review & AI suggestions**: If auto-solving fails, AI analyzes the error and provides improvement suggestions for review and learning.
+
 ---
 
 ## 🔍 API文档 / API Documentation
@@ -266,10 +282,26 @@ OPENAI_COMPATIBLE_MODEL=gpt-3.5-turbo
 | `/api/history` | GET | 历史记录 | 获取分析历史 |
 | `/api/stats` | GET | 统计信息 | 获取使用统计 |
 | `/health` | GET | 健康检查 | 系统状态监控 |
+| `/api/auto-solve` | POST | 自动解题 | 支持题目描述、文件上传，自动生成代码并提取flag |
 
 ### 📖 **详细文档**
 
 启动服务后访问: http://localhost:8000/docs
+
+**请求参数 / Request Parameters**:
+- `description` (str): 题目描述 / Challenge description
+- `question_type` (str): 题目类型 / Challenge type
+- `file` (file, 可选/optional): 附件（图片/pcap/二进制等）/ Attachment (image/pcap/binary etc.)
+- `template_id` (str, 可选/optional): 解题模板ID / Solve template ID
+- `custom_code` (str, 可选/optional): 自定义解题代码 / Custom solve code
+
+**响应字段 / Response Fields**:
+- `success` (bool): 是否成功 / Success status
+- `flag` (str): 提取到的flag / Extracted flag
+- `generated_code` (str): 生成的解题代码 / Generated solve code
+- `execution_result` (str): 代码执行输出 / Code execution output
+- `structured` (dict): 结构化内容（代码块、表格等）/ Structured content (code blocks, tables, etc.)
+- `ai_suggestion` (str): AI改进建议（失败时）/ AI suggestion (on failure)
 
 ---
 

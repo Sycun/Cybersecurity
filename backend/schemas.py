@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from fastapi import UploadFile
 
 class QuestionCreate(BaseModel):
     """创建题目请求模型"""
@@ -16,6 +17,8 @@ class AnalysisRequest(BaseModel):
     user_id: Optional[str] = None
     conversation_id: Optional[str] = None
     use_context: bool = True
+    file: Optional[UploadFile] = None
+    file_type: Optional[str] = None
 
 class ToolResponse(BaseModel):
     """工具响应模型"""
@@ -65,12 +68,21 @@ class AutoSolveRequest(BaseModel):
     question_type: str
     template_id: Optional[str] = None
     custom_code: Optional[str] = None
+    file: Optional[UploadFile] = None
+    file_type: Optional[str] = None
 
 class AutoSolveResponse(BaseModel):
+    id: Optional[str] = None
     success: bool
-    result: str
-    execution_time: float
+    response: str
+    flag: Optional[str] = None
+    status: Optional[str] = None
     error: Optional[str] = None
+    ai_suggestion: Optional[str] = None
+    execution_time: Optional[float] = None
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    structured: Optional[Dict[str, Any]] = None
 
 class SolveTemplateCreate(BaseModel):
     name: str
@@ -129,4 +141,11 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     timestamp: str
-    metadata: Dict[str, Any] 
+    metadata: Dict[str, Any]
+
+class AnalysisResponse(BaseModel):
+    success: bool
+    response: str
+    structured: Optional[Dict[str, Any]] = None
+    conversation_id: Optional[str] = None
+    ai_provider: Optional[str] = None 

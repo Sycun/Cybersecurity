@@ -643,4 +643,66 @@ analyzeChallenge('这是一个逆向工程题目')
 
 ---
 
-*本API文档持续更新，确保与最新版本保持同步* 
+*本API文档持续更新，确保与最新版本保持同步*
+
+## /api/auto-solve 自动解题接口
+
+### 请求方式
+POST
+
+### 请求参数（multipart/form-data）
+
+| 参数名         | 类型     | 必填 | 说明                       |
+|----------------|----------|------|----------------------------|
+| description    | string   | 是   | 题目描述                   |
+| question_type  | string   | 是   | 题目类型（web/pwn/crypto等）|
+| file           | file     | 否   | 附件（图片/pcap/二进制等）  |
+| template_id    | string   | 否   | 解题模板ID                  |
+| custom_code    | string   | 否   | 自定义解题代码              |
+
+### 响应字段
+
+| 字段名         | 类型     | 说明                       |
+|----------------|----------|----------------------------|
+| success        | bool     | 是否解题成功               |
+| flag           | string   | 提取到的flag（flag{...}）  |
+| generated_code | string   | 生成的解题代码             |
+| execution_result | string | 代码执行输出               |
+| structured     | dict     | 结构化内容（代码块、表格等）|
+| ai_suggestion  | string   | AI改进建议（失败时）        |
+| status         | string   | 解题状态（completed/failed）|
+| error_message  | string   | 错误信息（如有）            |
+| execution_time | int      | 执行耗时（秒）              |
+| created_at     | string   | 创建时间                    |
+| completed_at   | string   | 完成时间                    |
+
+### 请求示例
+
+```bash
+curl -X POST http://localhost:8000/api/auto-solve \
+  -F 'description=请分析附件流量包，找出flag' \
+  -F 'question_type=misc' \
+  -F 'file=@/path/to/test.pcap'
+```
+
+### 响应示例
+
+```json
+{
+  "success": true,
+  "flag": "flag{example_flag}",
+  "generated_code": "...",
+  "execution_result": "...",
+  "structured": {
+    "code_blocks": [...],
+    "tables": [...],
+    "images": [...]
+  },
+  "ai_suggestion": null,
+  "status": "completed",
+  "error_message": null,
+  "execution_time": 3,
+  "created_at": "2024-06-01T12:00:00",
+  "completed_at": "2024-06-01T12:00:03"
+}
+``` 

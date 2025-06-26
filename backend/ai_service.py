@@ -7,6 +7,8 @@ from ai_providers import AIProviderFactory, AIProvider
 from config import config
 from logger import get_logger
 from data_service import data_service
+from conversation_service import conversation_service
+import re
 
 load_dotenv()
 
@@ -146,49 +148,64 @@ class AIService:
         
         return enhanced_prompt
 
-    async def analyze_challenge(self, description: str, question_type: str, user_id: str = None, use_context: bool = True) -> str:
+    async def analyze_challenge(self, description: str, question_type: str, user_id: str = None, use_context: bool = True, conversation_id: str = None) -> str:
         """
-        分析CTF题目（支持上下文增强）
-        
-        Args:
-            description: 题目描述
-            question_type: 题目类型
-            user_id: 用户ID（可选）
-            use_context: 是否使用上下文增强
-            
-        Returns:
-            AI分析结果
+        分析CTF题目（支持上下文增强和多轮对话）
         """
         try:
             # 收集上下文信息
             context = self._collect_context(description, question_type, user_id) if use_context else {}
-            
-            # 生成缓存键（包含上下文哈希）
-            context_hash = hashlib.md5(json.dumps(context, sort_keys=True).encode()).hexdigest()[:8]
-            cache_key = self._generate_cache_key(description, question_type, self.provider_type)
-            
+
+            # 获取对话历史
+            history_msgs = []
+            if conversation_id:
+                history_msgs = conversation_service.get_conversation_history(conversation_id, limit=6)
+
+            # 构建对话历史文本
+            history_text = ""
+            if history_msgs:
+                history_text = "## 对话历史\n" + "\n".join([
+                    f"{'用户' if m['role']=='user' else 'AI助手'}: {m['content']}" for m in history_msgs
+                ]) + "\n"
+
+            # 构建上下文信息
+            context_info = []
+            if context.get("user_preferences"):
+                prefs = context["user_preferences"]
+                context_info.append(f"用户偏好: 使用{prefs.get('language', '中文')}分析，风格{prefs.get('analysis_style', '详细')}")
+            if context.get("history_summary"):
+                context_info.append(f"历史分析摘要: {context['history_summary']}")
+            if context.get("tool_usage"):
+                tools = [tool.get("name", "") for tool in context["tool_usage"]]
+                context_info.append(f"推荐工具: {', '.join(tools)}")
+            if context.get("success_patterns"):
+                patterns = context["success_patterns"]
+                context_info.append(f"成功模式: {'; '.join(patterns)}")
+            context_section = "\n\n## 上下文信息\n" + "\n".join(f"- {info}" for info in context_info) if context_info else ""
+
+            # 构建最终 prompt
+            base_prompt = self.provider.get_prompt_template(question_type)
+            prompt_body = f"{description}{context_section}"
+            enhanced_prompt = base_prompt.replace("{description}", prompt_body)
+            final_prompt = f"{history_text}\n## 当前问题\n题目类型: {question_type}\n题目描述: {enhanced_prompt}\n请基于对话历史和上下文信息，提供连贯且深入的分析。"
+
             # 检查缓存
+            cache_key = self._generate_cache_key(description, question_type, self.provider_type)
             cached_response = data_service.get_cache(cache_key)
             if cached_response:
                 self.logger.info(f"使用上下文缓存响应，题目类型: {question_type}")
                 return cached_response
-            
-            # 构建增强的提示词
-            if use_context and context:
-                enhanced_prompt = self._build_context_prompt(description, question_type, context)
-                self.logger.info(f"使用上下文增强分析，题目类型: {question_type}, 提供者: {self.provider_type}")
-            else:
-                enhanced_prompt = self.provider.get_prompt_template(question_type).format(description=description)
-                self.logger.info(f"使用标准分析，题目类型: {question_type}, 提供者: {self.provider_type}")
-            
+
             # 调用AI分析
-            response = await self.provider.analyze_challenge(enhanced_prompt, question_type)
-            
-            # 缓存结果
+            response = await self.provider.analyze_challenge(final_prompt, question_type)
             data_service.save_cache(cache_key, response, ttl=config.CACHE_TTL)
-            
+
+            # 追加消息到对话
+            if conversation_id:
+                conversation_service.add_message(conversation_id, "user", description, {"question_type": question_type})
+                conversation_service.add_message(conversation_id, "assistant", response, {})
+
             return response
-            
         except Exception as e:
             error_msg = f"AI服务异常: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
@@ -253,8 +270,6 @@ class AIService:
     
     def _extract_code_from_response(self, response: str) -> str:
         """从AI响应中提取代码"""
-        import re
-        
         # 尝试提取代码块
         code_patterns = [
             r'```python\n(.*?)\n```',
@@ -368,4 +383,87 @@ class AIService:
         Returns:
             可用提供者字典
         """
-        return AIProviderFactory.get_available_providers() 
+        return AIProviderFactory.get_available_providers()
+
+# 工具函数：增强型 prompt 构建
+
+def build_enhanced_prompt(question_type: str, description: str, skill_level: str = "expert", context_data: Optional[Dict[str, Any]] = None) -> str:
+    # 可根据需要扩展模板
+    base_context = ""  # 可引入更丰富的上下文模板
+    dynamic_content = ""
+    if context_data:
+        if "code" in context_data:
+            dynamic_content = f"请分析以下代码片段：\n\n```{context_data.get('language', 'text')}\n{context_data['code']}\n```"
+        elif "network_data" in context_data:
+            dynamic_content = f"请分析以下网络数据：\n{context_data['network_data']}"
+        elif "forensics_data" in context_data:
+            dynamic_content = f"请分析以下取证数据：\n{context_data['forensics_data']}"
+    enhanced_prompt = f"{base_context}\n\n题目描述：\n{description}\n\n{dynamic_content}\n"
+    return enhanced_prompt
+
+# 工具函数：AI响应关键信息提取
+
+def extract_code_blocks(ai_response: str) -> list:
+    import re
+    code_pattern = r"```([a-zA-Z0-9]*)\n(.*?)```"
+    matches = re.findall(code_pattern, ai_response, re.DOTALL)
+    code_blocks = []
+    for lang, code in matches:
+        code_blocks.append({"language": lang or "text", "code": code.strip()})
+    return code_blocks
+
+def extract_tables(ai_response: str) -> list:
+    import re
+    # 简单提取 markdown 表格
+    table_pattern = r"((?:\|.+\|\n)+)"
+    matches = re.findall(table_pattern, ai_response)
+    tables = []
+    for table in matches:
+        if table.count("|") > 2:
+            tables.append({"type": "markdown", "content": table.strip()})
+    return tables
+
+def extract_images(ai_response: str) -> list:
+    import re
+    # 提取 base64 图片或图片链接
+    img_pattern = r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"
+    url_pattern = r"https?://[^\s)]+\.(?:png|jpg|jpeg|gif|bmp)"
+    images = re.findall(img_pattern, ai_response)
+    images += re.findall(url_pattern, ai_response)
+    return images
+
+def extract_charts(ai_response: str) -> list:
+    # 预留：可根据特定格式提取 chart 数据
+    return []
+
+def extract_structured_content(ai_response: str) -> dict:
+    return {
+        "code_blocks": extract_code_blocks(ai_response),
+        "tables": extract_tables(ai_response),
+        "images": extract_images(ai_response),
+        "charts": extract_charts(ai_response)
+    }
+
+def extract_key_insights(ai_response: str) -> Dict[str, Any]:
+    insights = {
+        "vulnerability_types": [],
+        "tools_mentioned": [],
+        "difficulty_level": "",
+        "key_techniques": [],
+        "code_snippets": [],
+        "learning_resources": [],
+        "structured": extract_structured_content(ai_response)
+    }
+    vuln_pattern = r"漏洞类型[：:]\s*(.+)"
+    vuln_matches = re.findall(vuln_pattern, ai_response)
+    insights["vulnerability_types"] = [v.strip() for v in vuln_matches]
+    tool_pattern = r"(工具|使用|推荐)[：:]\s*(.+)"
+    tool_matches = re.findall(tool_pattern, ai_response)
+    insights["tools_mentioned"] = [t[1].strip() for t in tool_matches]
+    code_pattern = r"```(?:python|bash|sh|js|php|java|cpp|c|go|rust)?\n(.*?)```"
+    code_matches = re.findall(code_pattern, ai_response, re.DOTALL)
+    insights["code_snippets"] = code_matches
+    resource_pattern = r"(学习|参考|资源)[：:]\s*(.+)"
+    resource_matches = re.findall(resource_pattern, ai_response)
+    insights["learning_resources"] = [r[1].strip() for r in resource_matches]
+    return insights 

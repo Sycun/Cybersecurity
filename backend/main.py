@@ -10,11 +10,13 @@ from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import asyncio
+import mimetypes
+import magic
 
 from database import SessionLocal, engine, Base
 from models import Question, Tool, AutoSolve, SolveTemplate
 from schemas import QuestionCreate, QuestionResponse, ToolResponse, AnalysisRequest, AutoSolveRequest, AutoSolveResponse, SolveTemplateCreate, SolveTemplateResponse, CodeExecutionRequest, CodeExecutionResponse, ConversationCreateRequest, MessageRequest
-from ai_service import AIService
+from ai_service import AIService, extract_structured_content
 from auto_solver import AutoSolver
 from utils import detect_question_type, get_recommended_tools
 from config import config
@@ -87,118 +89,175 @@ async def health_check():
         raise HTTPException(status_code=500, detail=f"服务异常: {str(e)}")
 
 @app.post("/api/analyze")
-async def analyze_challenge(request: AnalysisRequest):
-    """分析CTF题目"""
+async def analyze_challenge(
+    description: str = Form(...),
+    question_type: str = Form(...),
+    ai_provider: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+    conversation_id: Optional[str] = Form(None),
+    use_context: bool = Form(True),
+    file: Optional[UploadFile] = File(None),
+    file_type: Optional[str] = Form(None)
+):
+    """分析CTF题目，支持多模态文件上传"""
     try:
+        # 文件类型自动识别
+        detected_type = None
+        file_content = None
+        if file:
+            file_content = await file.read()
+            detected_type = file_type or file.content_type or mimetypes.guess_type(file.filename)[0]
+            if not detected_type and file_content:
+                try:
+                    detected_type = magic.from_buffer(file_content, mime=True)
+                except Exception:
+                    detected_type = None
+
+        # 多模态分析分发
+        multimodal_context = {}
+        if detected_type:
+            if detected_type.startswith("image/"):
+                # 图片分析（如OCR/隐写）
+                multimodal_context["image"] = file_content
+            elif detected_type in ["application/vnd.tcpdump.pcap", "application/octet-stream"] and file.filename.endswith(".pcap"):
+                multimodal_context["pcap"] = file_content
+            elif detected_type in ["application/x-executable", "application/x-dosexec", "application/octet-stream"]:
+                multimodal_context["binary"] = file_content
+            else:
+                multimodal_context["file"] = file_content
+
         # 创建或获取对话会话
-        conversation_id = request.conversation_id
-        if not conversation_id:
-            conversation_id = conversation_service.create_conversation(
-                user_id=request.user_id,
-                initial_context={"question_type": request.question_type}
+        conv_id = conversation_id
+        if not conv_id:
+            conv_id = conversation_service.create_conversation(
+                user_id=user_id,
+                initial_context={"question_type": question_type}
             )
-        
-        # 添加用户消息到对话
         conversation_service.add_message(
-            conversation_id=conversation_id,
+            conversation_id=conv_id,
             role="user",
-            content=request.description,
-            metadata={
-                "question_type": request.question_type,
-                "ai_provider": request.ai_provider
-            }
+            content=description,
+            metadata={"question_type": question_type, "ai_provider": ai_provider, "file_type": detected_type}
         )
-        
-        # 构建多轮对话提示词
-        if conversation_id:
-            enhanced_prompt = conversation_service.build_conversation_prompt(
-                conversation_id, request.description, request.question_type
-            )
-        else:
-            enhanced_prompt = request.description
-        
+
+        # 构建多轮对话提示词（可拼接文件摘要/特征）
+        enhanced_prompt = description
+        if multimodal_context:
+            enhanced_prompt += f"\n\n[文件类型: {detected_type}, 文件名: {file.filename}]"
+            # TODO: 可插入自动摘要/特征提取
+
         # 调用AI分析
-        if request.ai_provider and request.ai_provider != ai_service.provider_type:
-            ai_service.switch_provider(request.ai_provider)
-        
+        if ai_provider and ai_provider != ai_service.provider_type:
+            ai_service.switch_provider(ai_provider)
         response = await ai_service.analyze_challenge(
-            enhanced_prompt, 
-            request.question_type,
-            user_id=request.user_id,
-            use_context=request.use_context
+            enhanced_prompt,
+            question_type,
+            user_id=user_id,
+            use_context=use_context,
+            conversation_id=conv_id
         )
-        
-        # 添加AI响应到对话
         conversation_service.add_message(
-            conversation_id=conversation_id,
+            conversation_id=conv_id,
             role="assistant",
             content=response,
             metadata={"ai_provider": ai_service.provider_type}
         )
-        
-        # 保存分析记录
         analysis_data = {
-            "description": request.description,
-            "question_type": request.question_type,
+            "description": description,
+            "question_type": question_type,
             "ai_response": response,
             "ai_provider": ai_service.provider_type,
-            "conversation_id": conversation_id,
-            "use_context": request.use_context
+            "conversation_id": conv_id,
+            "use_context": use_context,
+            "file_type": detected_type,
+            "file_name": file.filename if file else None
         }
-        
         data_service.save_analysis_history(analysis_data)
-        
+        structured = extract_structured_content(response)
         return {
             "success": True,
             "response": response,
-            "conversation_id": conversation_id,
-            "ai_provider": ai_service.provider_type
+            "structured": structured,
+            "conversation_id": conv_id,
+            "ai_provider": ai_service.provider_type,
+            "file_type": detected_type
         }
-        
     except Exception as e:
         logger.error(f"分析题目失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"分析题目失败: {str(e)}")
 
 @app.post("/api/auto-solve", response_model=AutoSolveResponse)
 async def auto_solve_challenge(
-    request: AutoSolveRequest
+    description: str = Form(...),
+    question_type: str = Form(...),
+    template_id: Optional[str] = Form(None),
+    custom_code: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    file_type: Optional[str] = Form(None)
 ):
-    """自动解题"""
+    """自动解题，支持多模态文件上传"""
     try:
-        logger.info(f"收到自动解题请求，题目ID: {request.question_id}")
-        
-        # 获取题目信息
-        question = data_service.get_challenge(request.question_id)
-        if not question:
-            raise HTTPException(status_code=404, detail="题目不存在")
-        
+        logger.info(f"收到自动解题请求，题目类型: {question_type}")
+        # 文件类型自动识别
+        detected_type = None
+        file_content = None
+        if file:
+            file_content = await file.read()
+            detected_type = file_type or file.content_type or mimetypes.guess_type(file.filename)[0]
+            if not detected_type and file_content:
+                try:
+                    detected_type = magic.from_buffer(file_content, mime=True)
+                except Exception:
+                    detected_type = None
+        # 多模态参数准备
+        multimodal_params = {}
+        file_info = None
+        if file_content:
+            file_info = {
+                "file": file_content,
+                "file_type": detected_type,
+                "file_name": file.filename
+            }
+            multimodal_params = {"file": file_content, "file_type": detected_type, "file_name": file.filename}
         # 创建自动解题引擎
         auto_solver = AutoSolver(ai_service=ai_service)
-        
         # 执行自动解题
         result = await auto_solver.solve_challenge(
-            question_id=request.question_id,
-            solve_method=request.solve_method,
-            custom_code=request.custom_code,
-            parameters=request.parameters
+            question_id=None,  # 支持无题库ID
+            solve_method=template_id,
+            custom_code=custom_code,
+            parameters=multimodal_params if multimodal_params else None,
+            description=description,
+            question_type=question_type,
+            file_info=file_info
         )
-        
-        logger.info(f"自动解题完成，ID: {result['id']}, 状态: {result['status']}")
-        
+        # 自动分析失败原因
+        ai_suggestion = None
+        if result.get("status") == "failed" and result.get("error_message"):
+            ai_suggestion = await ai_service.analyze_challenge(
+                f"自动解题失败，错误信息如下：\n{result['error_message']}\n请分析失败原因并给出改进建议。",
+                question_type
+            )
+            result["ai_suggestion"] = ai_suggestion
+        logger.info(f"自动解题完成，状态: {result['status']}")
+        structured = extract_structured_content(result.get('generated_code', ""))
         return AutoSolveResponse(
-            id=result['id'],
-            question_id=result['question_id'],
-            status=result['status'],
-            solve_method=result['solve_method'],
-            generated_code=result['generated_code'],
-            execution_result=result['execution_result'],
-            flag=result['flag'],
-            error_message=result['error_message'],
-            execution_time=result['execution_time'],
-            created_at=result['created_at'],
-            completed_at=result['completed_at']
+            id=result.get('id', ""),
+            question_id=result.get('question_id', ""),
+            status=result.get('status', ""),
+            solve_method=result.get('solve_method', ""),
+            generated_code=result.get('generated_code', ""),
+            execution_result=result.get('execution_result', ""),
+            flag=result.get('flag', ""),
+            error_message=result.get('error_message', ""),
+            execution_time=result.get('execution_time', 0),
+            created_at=result.get('created_at', ""),
+            completed_at=result.get('completed_at', ""),
+            structured=structured,
+            success=result.get('status', "") == "completed",
+            response=result.get('execution_result', ""),
+            ai_suggestion=ai_suggestion
         )
-        
     except Exception as e:
         logger.error(f"自动解题失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"自动解题失败: {str(e)}")

@@ -31,51 +31,72 @@ class AutoSolver:
             'cpp': {'ext': '.cpp', 'cmd': 'g++'}
         }
     
-    async def solve_challenge(self, question_id: str, solve_method: str = None, 
-                            custom_code: str = None, parameters: Dict[str, Any] = None) -> Dict[str, Any]:
-        """自动解题主函数"""
-        
+    async def solve_challenge(self, question_id: str = None, solve_method: str = None, 
+                            custom_code: str = None, parameters: Dict[str, Any] = None, 
+                            description: str = None, question_type: str = None, file_info: Dict[str, Any] = None) -> Dict[str, Any]:
+        """自动解题主函数，支持无题库ID临时解题"""
         # 获取题目信息
-        question = data_service.get_challenge(question_id)
-        if not question:
-            raise ValueError(f"题目ID {question_id} 不存在")
-        
+        if question_id:
+            question = data_service.get_challenge(question_id)
+            if not question:
+                raise ValueError(f"题目ID {question_id} 不存在")
+        else:
+            # 临时题目对象
+            question = {
+                "description": description or (parameters.get("description") if parameters else ""),
+                "type": question_type or (parameters.get("question_type") if parameters else "unknown"),
+                "file": file_info.get("file") if file_info and "file" in file_info else (parameters.get("file") if parameters and "file" in parameters else None),
+                "file_type": file_info.get("file_type") if file_info and "file_type" in file_info else (parameters.get("file_type") if parameters and "file_type" in parameters else None),
+                "file_name": file_info.get("file_name") if file_info and "file_name" in file_info else (parameters.get("file_name") if parameters and "file_name" in parameters else None)
+            }
         # 创建解题记录
         auto_solve_data = {
             "question_id": question_id,
             "status": "running",
             "solve_method": solve_method or "ai_generated"
         }
-        
         auto_solve_record = data_service.save_auto_solve(auto_solve_data)
-        
         try:
             start_time = time.time()
-            
-            # 根据解题方法选择策略
+            # 生成代码
             if custom_code:
-                # 使用用户自定义代码
                 generated_code = custom_code
                 language = self._detect_language(custom_code)
             elif solve_method == "template":
-                # 使用解题模板
                 generated_code, language = await self._generate_from_template(question, parameters)
             else:
-                # 使用AI生成代码
-                generated_code, language = await self._generate_ai_code(question)
-            
-            # 更新生成的代码
-            data_service.update_auto_solve(auto_solve_record["id"], {
-                "generated_code": generated_code
-            })
-            
+                # AI生成代码，细化prompt，拼接文件信息
+                if question.get("file"):
+                    file_info_section = (
+                        f"【文件信息】：\n"
+                        f"- 文件类型：{question.get('file_type', '未知')}\n"
+                        f"- 文件名：{question.get('file_name', '未知')}\n"
+                        f"- 文件内容已上传，可通过读取本地文件或变量获取内容。\n"
+                    )
+                else:
+                    file_info_section = ""
+                prompt = (
+                    "你是一个专业的CTF解题专家，擅长自动化脚本编写和flag提取。请根据以下题目信息，生成完整的Python解题代码：\n\n"
+                    f"【题目类型】：{question['type']}\n"
+                    f"【题目描述】：\n{question['description']}\n\n"
+                    f"{file_info_section}"
+                    "【解题要求】：\n"
+                    "1. 自动分析题目，结合题目描述和上传的文件内容，自动寻找并输出flag。\n"
+                    "2. flag格式为 flag{...}，请确保输出中包含完整flag。\n"
+                    "3. 代码需包含必要的导入、详细注释、异常处理，能直接运行。\n"
+                    "4. 输出flag时请使用 print(flag) 或 print('flag:', flag)。\n"
+                    "5. 不要输出与flag无关的内容。\n\n"
+                    "请只返回完整的Python代码，不要包含任何说明文字或解释。"
+                )
+                ai_response = await self.ai_service.analyze_challenge(prompt, question['type'])
+                generated_code = self._extract_code_from_response(ai_response)
+                if not generated_code:
+                    raise ValueError("AI未能生成有效的解题代码")
+                language = "python"
+            data_service.update_auto_solve(auto_solve_record["id"], {"generated_code": generated_code})
             # 执行代码
             execution_result, flag, error = await self._execute_code(generated_code, language, parameters)
-            
-            # 计算执行时间
             execution_time = int(time.time() - start_time)
-            
-            # 更新结果
             status = "completed" if not error else "failed"
             updates = {
                 "status": status,
@@ -84,25 +105,17 @@ class AutoSolver:
                 "error_message": error,
                 "execution_time": execution_time
             }
-            
             data_service.update_auto_solve(auto_solve_record["id"], updates)
-            
-            # 获取更新后的记录
             updated_record = data_service.get_auto_solve(auto_solve_record["id"])
-            
             self.logger.info(f"自动解题完成，ID: {auto_solve_record['id']}, 状态: {status}")
-            
             return updated_record
-            
         except Exception as e:
             error_msg = f"自动解题失败: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
-            
             data_service.update_auto_solve(auto_solve_record["id"], {
                 "status": "failed",
                 "error_message": error_msg
             })
-            
             return data_service.get_auto_solve(auto_solve_record["id"])
     
     async def _generate_ai_code(self, question: Dict[str, Any]) -> tuple[str, str]:
@@ -366,23 +379,11 @@ if __name__ == "__main__":
         return response.strip()
     
     def _extract_flag(self, output: str) -> str:
-        """从输出中提取flag"""
-        
-        # 常见的flag格式
-        flag_patterns = [
-            r'flag{[^}]+}',
-            r'FLAG{[^}]+}',
-            r'ctf{[^}]+}',
-            r'CTF{[^}]+}',
-            r'key{[^}]+}',
-            r'KEY{[^}]+}'
-        ]
-        
-        for pattern in flag_patterns:
-            match = re.search(pattern, output, re.IGNORECASE)
-            if match:
-                return match.group(0)
-        
+        """从输出中提取flag，仅支持flag{...}"""
+        flag_pattern = r'flag{[^}]+}'
+        match = re.search(flag_pattern, output, re.IGNORECASE)
+        if match:
+            return match.group(0)
         return ""
     
     def _detect_language(self, code: str) -> str:
