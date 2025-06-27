@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3'
 
 services:
   backend:
@@ -6,36 +6,170 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     environment:
+      # AI服务配置
+      - AI_SERVICE=${AI_SERVICE:-deepseek}
+      - DEFAULT_AI_MODEL=${DEFAULT_AI_MODEL:-deepseek-chat}
+      
+      # DeepSeek配置
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEEPSEEK_API_URL=${DEEPSEEK_API_URL}
-      - DATABASE_URL=sqlite:///./ctf_analyzer.db
-      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - DEEPSEEK_API_URL=${DEEPSEEK_API_URL:-https://api.deepseek.com/v1/chat/completions}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      
+      # 硅基流动配置
+      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
+      - SILICONFLOW_API_URL=${SILICONFLOW_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
+      - SILICONFLOW_MODEL=${SILICONFLOW_MODEL:-Qwen/QwQ-32B}
+      
+      # 本地模型配置
+      - LOCAL_MODEL_PATH=${LOCAL_MODEL_PATH}
+      - LOCAL_MODEL_TYPE=${LOCAL_MODEL_TYPE:-auto}
+      - LOCAL_MODEL_DEVICE=${LOCAL_MODEL_DEVICE:-auto}
+      - LOCAL_MODEL_MAX_LENGTH=${LOCAL_MODEL_MAX_LENGTH:-4096}
+      - LOCAL_MODEL_TEMPERATURE=${LOCAL_MODEL_TEMPERATURE:-0.7}
+      
+      # OpenAI兼容API配置
+      - OPENAI_COMPATIBLE_API_URL=${OPENAI_COMPATIBLE_API_URL}
+      - OPENAI_COMPATIBLE_API_KEY=${OPENAI_COMPATIBLE_API_KEY:-sk-no-key-required}
+      - OPENAI_COMPATIBLE_MODEL=${OPENAI_COMPATIBLE_MODEL:-gpt-3.5-turbo}
+      
+      # 数据库配置
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./ctf_analyzer.db}
+      - DATABASE_POOL_SIZE=${DATABASE_POOL_SIZE:-10}
+      - DATABASE_TIMEOUT=${DATABASE_TIMEOUT:-30}
+      
+      # 服务器配置
+      - BACKEND_HOST=${BACKEND_HOST:-0.0.0.0}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - FRONTEND_PORT=${FRONTEND_PORT:-3000}
+      
+      # CORS配置
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - ENABLE_CORS=${ENABLE_CORS:-true}
+      
+      # 安全配置
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-this-in-production}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
+      - PASSWORD_SALT_ROUNDS=${PASSWORD_SALT_ROUNDS:-12}
+      - ENABLE_HTTPS=${ENABLE_HTTPS:-false}
+      - SSL_CERT_PATH=${SSL_CERT_PATH}
+      - SSL_KEY_PATH=${SSL_KEY_PATH}
+      
+      # 调试和日志配置
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=${LOG_FILE:-logs/app.log}
+      - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10}
+      - LOG_BACKUP_COUNT=${LOG_BACKUP_COUNT:-5}
+      - ENABLE_CONSOLE_LOG=${ENABLE_CONSOLE_LOG:-true}
+      
+      # 性能配置
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-60}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-10485760}
+      - UPLOAD_DIR=${UPLOAD_DIR:-uploads}
+      - ALLOWED_FILE_TYPES=${ALLOWED_FILE_TYPES:-image/*,text/*,application/json,application/xml}
+      - WORKER_PROCESSES=${WORKER_PROCESSES:-1}
+      
+      # 缓存配置
+      - ENABLE_CACHE=${ENABLE_CACHE:-true}
+      - CACHE_TTL=${CACHE_TTL:-3600}
+      - CACHE_MAX_ENTRIES=${CACHE_MAX_ENTRIES:-1000}
+      - CACHE_CLEANUP_INTERVAL=${CACHE_CLEANUP_INTERVAL:-300}
+      
+      # 邮件配置
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - FROM_EMAIL=${FROM_EMAIL:-noreply@yourdomain.com}
+      
+      # 监控配置
+      - ENABLE_MONITORING=${ENABLE_MONITORING:-true}
+      - MONITORING_RETENTION_DAYS=${MONITORING_RETENTION_DAYS:-30}
+      - ENABLE_HEALTH_CHECK=${ENABLE_HEALTH_CHECK:-true}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-60}
+      
+      # 备份配置
+      - ENABLE_AUTO_BACKUP=${ENABLE_AUTO_BACKUP:-false}
+      - BACKUP_DIR=${BACKUP_DIR:-backups}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
+      - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-0 2 * * *}
+      
+      # 第三方服务配置
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - WECHAT_APP_ID=${WECHAT_APP_ID}
+      - WECHAT_APP_SECRET=${WECHAT_APP_SECRET}
+      
+      # 开发环境配置
+      - ENABLE_HOT_RELOAD=${ENABLE_HOT_RELOAD:-true}
+      - ENABLE_DETAILED_ERRORS=${ENABLE_DETAILED_ERRORS:-false}
+      - DEV_SERVER_HOST=${DEV_SERVER_HOST:-localhost}
+      - DEV_SERVER_PORT=${DEV_SERVER_PORT:-3000}
+      
+      # 生产环境配置
+      - PRODUCTION_DOMAIN=${PRODUCTION_DOMAIN:-yourdomain.com}
+      - CDN_URL=${CDN_URL}
+      - STATIC_FILES_DIR=${STATIC_FILES_DIR:-static}
+      - ENABLE_COMPRESSION=${ENABLE_COMPRESSION:-true}
+      - ENABLE_CACHE_HEADERS=${ENABLE_CACHE_HEADERS:-true}
     volumes:
       - ./backend:/app
       - backend_data:/app/data
+      - backend_logs:/app/logs
+      - backend_uploads:/app/uploads
+      - backend_backups:/app/backups
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
+      # 前端环境变量
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
+      - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8000}
+      - REACT_APP_API_TIMEOUT=${REACT_APP_API_TIMEOUT:-60000}
+      
+      # Node.js环境
+      - NODE_ENV=${NODE_ENV:-development}
+      - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
     volumes:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
-  backend_data: 
+  backend_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_backups:
+    driver: local
+
+networks:
+  default:
+    name: ctf_analyzer_network 

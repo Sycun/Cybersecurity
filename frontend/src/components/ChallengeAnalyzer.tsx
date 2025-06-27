@@ -180,8 +180,9 @@ const ChallengeAnalyzer: React.FC<ChallengeAnalyzerProps> = ({ onAnalysisComplet
         <h2>CTF题目智能分析</h2>
         <div className="analyzer-controls">
           <div className="control-group">
-            <label>AI模型:</label>
+            <label htmlFor="ai-provider-select">AI模型:</label>
             <select
+              id="ai-provider-select"
               value={selectedProvider}
               onChange={(e) => setSelectedProvider(e.target.value)}
               disabled={loading}
@@ -221,8 +222,9 @@ const ChallengeAnalyzer: React.FC<ChallengeAnalyzerProps> = ({ onAnalysisComplet
       <div className="analyzer-content">
         <div className="input-section">
           <div className="form-group">
-            <label>题目类型:</label>
+            <label htmlFor="question-type-select">题目类型:</label>
             <select
+              id="question-type-select"
               value={questionType}
               onChange={(e) => setQuestionType(e.target.value)}
               disabled={loading}

@@ -31,23 +31,41 @@ load_dotenv()
 # 设置日志
 logger = get_logger("main")
 
+# 验证配置
+try:
+    logger.info("正在验证配置...")
+    config._validate_config()
+    logger.info("配置验证通过")
+except Exception as e:
+    logger.error(f"配置验证失败: {e}")
+    raise
+
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
+
+# 创建必要的目录
+os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(config.LOG_FILE), exist_ok=True)
+if config.ENABLE_AUTO_BACKUP:
+    os.makedirs(config.BACKUP_DIR, exist_ok=True)
 
 app = FastAPI(
     title="CTF智能分析平台",
     description="支持多AI提供者的CTF题目智能分析平台，包括DeepSeek、硅基流动、本地模型和OpenAI兼容API",
-    version="2.1.0"
+    version="2.1.0",
+    debug=config.DEBUG
 )
 
 # CORS配置
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if config.ENABLE_CORS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.info(f"CORS已启用，允许的源: {config.ALLOWED_ORIGINS}")
 
 # 依赖注入：获取数据库会话
 def get_db():
@@ -58,15 +76,28 @@ def get_db():
         db.close()
 
 # 初始化AI服务
-ai_service = AIService()
+try:
+    ai_service = AIService()
+    logger.info(f"AI服务初始化成功，使用提供者: {ai_service.provider_type}")
+except Exception as e:
+    logger.error(f"AI服务初始化失败: {e}")
+    raise
 
 # 静态文件服务
-app.mount("/static", StaticFiles(directory="static"), name="static")
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    logger.info("静态文件服务已启用")
 
 @app.get("/")
 async def root():
     """根路径"""
-    return {"message": "CTF智能分析平台API", "version": "2.1.0"}
+    return {
+        "message": "CTF智能分析平台API", 
+        "version": "2.1.0",
+        "ai_provider": ai_service.provider_type,
+        "debug": config.DEBUG,
+        "environment": "production" if config.is_production() else "development"
+    }
 
 @app.get("/health")
 async def health_check():
@@ -77,12 +108,36 @@ async def health_check():
         db.execute(text("SELECT 1"))
         db.close()
         
+        # 检查AI服务状态
+        ai_status = "healthy"
+        try:
+            provider_config = ai_service.get_provider_info()
+        except Exception as e:
+            ai_status = f"error: {str(e)}"
+        
+        # 检查缓存状态
+        cache_status = "enabled" if config.ENABLE_CACHE else "disabled"
+        
+        # 检查文件系统
+        fs_status = "healthy"
+        try:
+            os.access(config.UPLOAD_DIR, os.W_OK)
+        except Exception:
+            fs_status = "error: upload directory not writable"
+        
         return {
             "status": "healthy",
             "database": "healthy",
-            "ai_provider": ai_service.provider_type,
-            "cache_enabled": config.ENABLE_CACHE,
-            "timestamp": "2024-01-01T12:00:00.000000"
+            "ai_provider": ai_status,
+            "cache": cache_status,
+            "filesystem": fs_status,
+            "config": {
+                "debug": config.DEBUG,
+                "environment": "production" if config.is_production() else "development",
+                "cors_enabled": config.ENABLE_CORS,
+                "monitoring_enabled": config.ENABLE_MONITORING
+            },
+            "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
         logger.error(f"健康检查失败: {str(e)}")
@@ -101,6 +156,25 @@ async def analyze_challenge(
 ):
     """分析CTF题目，支持多模态文件上传"""
     try:
+        # 验证文件大小
+        if file and file.size > config.MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"文件大小超过限制 ({config.MAX_FILE_SIZE} 字节)"
+            )
+        
+        # 验证文件类型
+        if file:
+            allowed_types = config.ALLOWED_FILE_TYPES
+            if file.content_type and not any(
+                allowed_type == "*" or file.content_type.startswith(allowed_type.replace("*", ""))
+                for allowed_type in allowed_types
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"不支持的文件类型: {file.content_type}"
+                )
+        
         # 文件类型自动识别
         detected_type = None
         file_content = None
@@ -182,6 +256,8 @@ async def analyze_challenge(
             "ai_provider": ai_service.provider_type,
             "file_type": detected_type
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"分析题目失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"分析题目失败: {str(e)}")
@@ -198,66 +274,50 @@ async def auto_solve_challenge(
     """自动解题，支持多模态文件上传"""
     try:
         logger.info(f"收到自动解题请求，题目类型: {question_type}")
-        # 文件类型自动识别
-        detected_type = None
-        file_content = None
+        
+        # 验证文件大小
+        if file and file.size > config.MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"文件大小超过限制 ({config.MAX_FILE_SIZE} 字节)"
+            )
+        
+        # 处理文件上传
+        file_info = {}
         if file:
             file_content = await file.read()
-            detected_type = file_type or file.content_type or mimetypes.guess_type(file.filename)[0]
-            if not detected_type and file_content:
-                try:
-                    detected_type = magic.from_buffer(file_content, mime=True)
-                except Exception:
-                    detected_type = None
-        # 多模态参数准备
-        multimodal_params = {}
-        file_info = None
-        if file_content:
             file_info = {
                 "file": file_content,
-                "file_type": detected_type,
+                "file_type": file_type or file.content_type,
                 "file_name": file.filename
             }
-            multimodal_params = {"file": file_content, "file_type": detected_type, "file_name": file.filename}
-        # 创建自动解题引擎
+        
+        # 创建自动解题器
         auto_solver = AutoSolver(ai_service=ai_service)
+        
         # 执行自动解题
         result = await auto_solver.solve_challenge(
-            question_id=None,  # 支持无题库ID
-            solve_method=template_id,
-            custom_code=custom_code,
-            parameters=multimodal_params if multimodal_params else None,
             description=description,
             question_type=question_type,
+            template_id=template_id,
+            custom_code=custom_code,
             file_info=file_info
         )
-        # 自动分析失败原因
-        ai_suggestion = None
-        if result.get("status") == "failed" and result.get("error_message"):
-            ai_suggestion = await ai_service.analyze_challenge(
-                f"自动解题失败，错误信息如下：\n{result['error_message']}\n请分析失败原因并给出改进建议。",
-                question_type
-            )
-            result["ai_suggestion"] = ai_suggestion
-        logger.info(f"自动解题完成，状态: {result['status']}")
-        structured = extract_structured_content(result.get('generated_code', ""))
+        
         return AutoSolveResponse(
-            id=result.get('id', ""),
-            question_id=result.get('question_id', ""),
-            status=result.get('status', ""),
-            solve_method=result.get('solve_method', ""),
-            generated_code=result.get('generated_code', ""),
-            execution_result=result.get('execution_result', ""),
-            flag=result.get('flag', ""),
-            error_message=result.get('error_message', ""),
-            execution_time=result.get('execution_time', 0),
-            created_at=result.get('created_at', ""),
-            completed_at=result.get('completed_at', ""),
-            structured=structured,
-            success=result.get('status', "") == "completed",
-            response=result.get('execution_result', ""),
-            ai_suggestion=ai_suggestion
+            id=result.get("id"),
+            success=result.get("status") == "completed",
+            response=result.get("execution_result", ""),
+            flag=result.get("flag"),
+            status=result.get("status"),
+            error=result.get("error_message"),
+            execution_time=result.get("execution_time"),
+            created_at=result.get("created_at"),
+            completed_at=result.get("completed_at")
         )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"自动解题失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"自动解题失败: {str(e)}")

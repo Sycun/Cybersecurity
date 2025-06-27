@@ -1,12 +1,34 @@
 import axios from 'axios';
 import { QuestionResponse, StatsResponse, ToolResponse } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// 从环境变量获取API基础URL，如果没有设置则使用默认值
+const API_BASE_URL = process.env.REACT_APP_API_URL || 
+                    process.env.REACT_APP_BACKEND_URL || 
+                    'http://localhost:8000';
 
+// 创建axios实例，支持环境变量配置
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000, // 60秒超时
+  timeout: parseInt(process.env.REACT_APP_API_TIMEOUT || '60000'), // 默认60秒超时
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
+
+// 添加请求拦截器，用于添加认证头等
+api.interceptors.request.use(
+  (config) => {
+    // 从localStorage获取token（如果实现了认证）
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // 分析CTF题目
 export const analyzeChallenge = async (request: {
@@ -201,53 +223,30 @@ export interface AIConfig {
   local_model_temperature?: number;
 }
 
-// 获取当前配置
+// 获取设置
 export const getSettings = async (): Promise<AIConfig> => {
   const response = await api.get('/api/settings');
   return response.data;
 };
 
-// 更新配置
+// 更新设置
 export const updateSettings = async (config: AIConfig): Promise<{
   message: string;
   updated_fields?: string[];
   current_provider?: string;
 }> => {
-  const response = await fetch(`${API_BASE_URL}/api/settings`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(config),
-  });
-  
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.detail || '配置更新失败');
-  }
-  
-  return response.json();
+  const response = await api.post('/api/settings', config);
+  return response.data;
 };
 
-// 验证配置
+// 验证设置
 export const validateSettings = async (config: AIConfig): Promise<{
   valid: boolean;
   errors: string[];
   warnings: string[];
 }> => {
-  const response = await fetch(`${API_BASE_URL}/api/settings/validate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(config),
-  });
-  
-  if (!response.ok) {
-    throw new Error('配置验证失败');
-  }
-  
-  return response.json();
+  const response = await api.post('/api/settings/validate', config);
+  return response.data;
 };
 
 // 测试连接
@@ -258,26 +257,14 @@ export const testConnection = async (provider?: string, config?: AIConfig): Prom
   response_preview?: string;
   error_details?: string;
 }> => {
-  const response = await fetch(`${API_BASE_URL}/api/test-connection`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      provider,
-      config
-    }),
+  const response = await api.post('/api/settings/test-connection', {
+    provider,
+    config
   });
-  
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.detail || '连接测试失败');
-  }
-  
-  return response.json();
+  return response.data;
 };
 
-// 自动解题相关API
+// 自动解题相关接口
 export const autoSolveChallenge = async (request: {
   question_id: number;
   solve_method?: string;
@@ -293,6 +280,7 @@ export const getAutoSolveResult = async (solveId: number): Promise<any> => {
   return response.data;
 };
 
+// 代码执行接口
 export const executeCode = async (request: {
   code: string;
   language: string;
@@ -303,9 +291,11 @@ export const executeCode = async (request: {
   return response.data;
 };
 
+// 解题模板接口
 export const getSolveTemplates = async (category?: string): Promise<any> => {
-  const params = category ? { category } : {};
-  const response = await api.get('/api/solve-templates', { params });
+  const response = await api.get('/api/solve-templates', {
+    params: { category }
+  });
   return response.data;
 };
 
@@ -320,21 +310,14 @@ export const createSolveTemplate = async (template: {
   return response.data;
 };
 
-// 对话管理相关API
+// 对话相关接口
 export const createConversation = async (userId?: string, initialContext?: any): Promise<string | null> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        user_id: userId,
-        initial_context: initialContext
-      }),
+    const response = await api.post('/api/conversations', {
+      user_id: userId,
+      initial_context: initialContext
     });
-    const data = await response.json();
-    return data.conversation_id || null;
+    return response.data.conversation_id;
   } catch (error) {
     console.error('创建对话失败:', error);
     return null;
@@ -343,9 +326,8 @@ export const createConversation = async (userId?: string, initialContext?: any):
 
 export const getConversation = async (conversationId: string): Promise<any | null> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`);
-    const data = await response.json();
-    return data.conversation || null;
+    const response = await api.get(`/api/conversations/${conversationId}`);
+    return response.data;
   } catch (error) {
     console.error('获取对话失败:', error);
     return null;
@@ -354,9 +336,10 @@ export const getConversation = async (conversationId: string): Promise<any | nul
 
 export const getUserConversations = async (userId: string, limit: number = 10): Promise<any[]> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations/user/${userId}?limit=${limit}`);
-    const data = await response.json();
-    return data.conversations || [];
+    const response = await api.get(`/api/conversations/user/${userId}`, {
+      params: { limit }
+    });
+    return response.data;
   } catch (error) {
     console.error('获取用户对话列表失败:', error);
     return [];
@@ -365,11 +348,8 @@ export const getUserConversations = async (userId: string, limit: number = 10): 
 
 export const deleteConversation = async (conversationId: string): Promise<boolean> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`, {
-      method: 'DELETE',
-    });
-    const data = await response.json();
-    return data.success || false;
+    await api.delete(`/api/conversations/${conversationId}`);
+    return true;
   } catch (error) {
     console.error('删除对话失败:', error);
     return false;
@@ -378,21 +358,17 @@ export const deleteConversation = async (conversationId: string): Promise<boolea
 
 export const addMessage = async (conversationId: string, role: string, content: string, metadata?: any): Promise<boolean> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        role,
-        content,
-        metadata
-      }),
+    await api.post(`/api/conversations/${conversationId}/messages`, {
+      role,
+      content,
+      metadata
     });
-    const data = await response.json();
-    return data.success || false;
+    return true;
   } catch (error) {
     console.error('添加消息失败:', error);
     return false;
   }
-}; 
+};
+
+// 导出API基础URL，供其他模块使用
+export { API_BASE_URL };
